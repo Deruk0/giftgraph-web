@@ -1,0 +1,1028 @@
+<html>
+    <head>
+        <meta charset="utf-8">
+        
+            <script>function neighbourhoodHighlight(params) {
+  // console.log("in nieghbourhoodhighlight");
+  allNodes = nodes.get({ returnType: "Object" });
+  // originalNodes = JSON.parse(JSON.stringify(allNodes));
+  // if something is selected:
+  if (params.nodes.length > 0) {
+    highlightActive = true;
+    var i, j;
+    var selectedNode = params.nodes[0];
+    var degrees = 2;
+
+    // mark all nodes as hard to read.
+    for (let nodeId in allNodes) {
+      // nodeColors[nodeId] = allNodes[nodeId].color;
+      allNodes[nodeId].color = "rgba(200,200,200,0.5)";
+      if (allNodes[nodeId].hiddenLabel === undefined) {
+        allNodes[nodeId].hiddenLabel = allNodes[nodeId].label;
+        allNodes[nodeId].label = undefined;
+      }
+    }
+    var connectedNodes = network.getConnectedNodes(selectedNode);
+    var allConnectedNodes = [];
+
+    // get the second degree nodes
+    for (i = 1; i < degrees; i++) {
+      for (j = 0; j < connectedNodes.length; j++) {
+        allConnectedNodes = allConnectedNodes.concat(
+          network.getConnectedNodes(connectedNodes[j])
+        );
+      }
+    }
+
+    // all second degree nodes get a different color and their label back
+    for (i = 0; i < allConnectedNodes.length; i++) {
+      // allNodes[allConnectedNodes[i]].color = "pink";
+      allNodes[allConnectedNodes[i]].color = "rgba(150,150,150,0.75)";
+      if (allNodes[allConnectedNodes[i]].hiddenLabel !== undefined) {
+        allNodes[allConnectedNodes[i]].label =
+          allNodes[allConnectedNodes[i]].hiddenLabel;
+        allNodes[allConnectedNodes[i]].hiddenLabel = undefined;
+      }
+    }
+
+    // all first degree nodes get their own color and their label back
+    for (i = 0; i < connectedNodes.length; i++) {
+      // allNodes[connectedNodes[i]].color = undefined;
+      allNodes[connectedNodes[i]].color = nodeColors[connectedNodes[i]];
+      if (allNodes[connectedNodes[i]].hiddenLabel !== undefined) {
+        allNodes[connectedNodes[i]].label =
+          allNodes[connectedNodes[i]].hiddenLabel;
+        allNodes[connectedNodes[i]].hiddenLabel = undefined;
+      }
+    }
+
+    // the main node gets its own color and its label back.
+    // allNodes[selectedNode].color = undefined;
+    allNodes[selectedNode].color = nodeColors[selectedNode];
+    if (allNodes[selectedNode].hiddenLabel !== undefined) {
+      allNodes[selectedNode].label = allNodes[selectedNode].hiddenLabel;
+      allNodes[selectedNode].hiddenLabel = undefined;
+    }
+  } else if (highlightActive === true) {
+    // console.log("highlightActive was true");
+    // reset all nodes
+    for (let nodeId in allNodes) {
+      // allNodes[nodeId].color = "purple";
+      allNodes[nodeId].color = nodeColors[nodeId];
+      // delete allNodes[nodeId].color;
+      if (allNodes[nodeId].hiddenLabel !== undefined) {
+        allNodes[nodeId].label = allNodes[nodeId].hiddenLabel;
+        allNodes[nodeId].hiddenLabel = undefined;
+      }
+    }
+    highlightActive = false;
+  }
+
+  // transform the object into an array
+  var updateArray = [];
+  if (params.nodes.length > 0) {
+    for (let nodeId in allNodes) {
+      if (allNodes.hasOwnProperty(nodeId)) {
+        // console.log(allNodes[nodeId]);
+        updateArray.push(allNodes[nodeId]);
+      }
+    }
+    nodes.update(updateArray);
+  } else {
+    // console.log("Nothing was selected");
+    for (let nodeId in allNodes) {
+      if (allNodes.hasOwnProperty(nodeId)) {
+        // console.log(allNodes[nodeId]);
+        // allNodes[nodeId].color = {};
+        updateArray.push(allNodes[nodeId]);
+      }
+    }
+    nodes.update(updateArray);
+  }
+}
+
+function filterHighlight(params) {
+  allNodes = nodes.get({ returnType: "Object" });
+  // if something is selected:
+  if (params.nodes.length > 0) {
+    filterActive = true;
+    let selectedNodes = params.nodes;
+
+    // hiding all nodes and saving the label
+    for (let nodeId in allNodes) {
+      allNodes[nodeId].hidden = true;
+      if (allNodes[nodeId].savedLabel === undefined) {
+        allNodes[nodeId].savedLabel = allNodes[nodeId].label;
+        allNodes[nodeId].label = undefined;
+      }
+    }
+
+    for (let i=0; i < selectedNodes.length; i++) {
+      allNodes[selectedNodes[i]].hidden = false;
+      if (allNodes[selectedNodes[i]].savedLabel !== undefined) {
+        allNodes[selectedNodes[i]].label = allNodes[selectedNodes[i]].savedLabel;
+        allNodes[selectedNodes[i]].savedLabel = undefined;
+      }
+    }
+
+  } else if (filterActive === true) {
+    // reset all nodes
+    for (let nodeId in allNodes) {
+      allNodes[nodeId].hidden = false;
+      if (allNodes[nodeId].savedLabel !== undefined) {
+        allNodes[nodeId].label = allNodes[nodeId].savedLabel;
+        allNodes[nodeId].savedLabel = undefined;
+      }
+    }
+    filterActive = false;
+  }
+
+  // transform the object into an array
+  var updateArray = [];
+  if (params.nodes.length > 0) {
+    for (let nodeId in allNodes) {
+      if (allNodes.hasOwnProperty(nodeId)) {
+        updateArray.push(allNodes[nodeId]);
+      }
+    }
+    nodes.update(updateArray);
+  } else {
+    for (let nodeId in allNodes) {
+      if (allNodes.hasOwnProperty(nodeId)) {
+        updateArray.push(allNodes[nodeId]);
+      }
+    }
+    nodes.update(updateArray);
+  }
+}
+
+function selectNode(nodes) {
+  network.selectNodes(nodes);
+  neighbourhoodHighlight({ nodes: nodes });
+  return nodes;
+}
+
+function selectNodes(nodes) {
+  network.selectNodes(nodes);
+  filterHighlight({nodes: nodes});
+  return nodes;
+}
+
+function highlightFilter(filter) {
+  let selectedNodes = []
+  let selectedProp = filter['property']
+  if (filter['item'] === 'node') {
+    let allNodes = nodes.get({ returnType: "Object" });
+    for (let nodeId in allNodes) {
+      if (allNodes[nodeId][selectedProp] && filter['value'].includes((allNodes[nodeId][selectedProp]).toString())) {
+        selectedNodes.push(nodeId)
+      }
+    }
+  }
+  else if (filter['item'] === 'edge'){
+    let allEdges = edges.get({returnType: 'object'});
+    // check if the selected property exists for selected edge and select the nodes connected to the edge
+    for (let edge in allEdges) {
+      if (allEdges[edge][selectedProp] && filter['value'].includes((allEdges[edge][selectedProp]).toString())) {
+        selectedNodes.push(allEdges[edge]['from'])
+        selectedNodes.push(allEdges[edge]['to'])
+      }
+    }
+  }
+  selectNodes(selectedNodes)
+}</script>
+            <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/vis-network/9.1.2/dist/dist/vis-network.min.css" integrity="sha512-WgxfT5LWjfszlPHXRmBWHkV2eceiWTOBvrKCNbdgDYTHrT2AeLCGbF4sZlZw3UMN3WtL0tGUoIAKsu8mllg/XA==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+            <script src="https://cdnjs.cloudflare.com/ajax/libs/vis-network/9.1.2/dist/vis-network.min.js" integrity="sha512-LnvoEWDFrqGHlHmDD2101OrLcbsfkrzoSpvtSQtxK3RMnRV0eOkhhBN2dXHKRrUU8p2DGRTk35n4O8nWSVe1mQ==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+            
+            
+            
+            
+            
+            
+
+        
+<center>
+<h1></h1>
+</center>
+
+<!-- <link rel="stylesheet" href="../node_modules/vis/dist/vis.min.css" type="text/css" />
+<script type="text/javascript" src="../node_modules/vis/dist/vis.js"> </script>-->
+        <link
+          href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.0-beta3/dist/css/bootstrap.min.css"
+          rel="stylesheet"
+          integrity="sha384-eOJMYsd53ii+scO/bJGFsiCZc+5NDVN2yr8+0RDqr0Ql0h+rP48ckxlpbzKgwra6"
+          crossorigin="anonymous"
+        />
+        <script
+          src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.0-beta3/dist/js/bootstrap.bundle.min.js"
+          integrity="sha384-JEW9xMcG8R+pH31jmWH6WWP0WintQrMb4s7ZOdauHnUtxwoG2vI5DkLtS3qm9Ekf"
+          crossorigin="anonymous"
+        ></script>
+
+
+        <center>
+          <h1></h1>
+        </center>
+        <style type="text/css">
+
+             #mynetwork {
+                 width: 100%;
+                 height: 100vh;
+                 background-color: #050816;
+                 border: 1px solid lightgray;
+                 position: relative;
+                 float: left;
+             }
+
+             
+
+             
+
+             
+        </style>
+    
+<script>
+  (function(){
+    var t = 'dark';
+    try { t = localStorage.getItem('giftgraph-theme') || 'dark'; } catch(e){}
+    document.documentElement.setAttribute('data-theme', t);
+    document.documentElement.style.background = t === 'light' ? '#eff2f8' : '#050816';
+  })();
+</script>
+<style>
+  html, body {
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    overflow: hidden;
+    background: var(--giftgraph-page);
+    color: var(--giftgraph-text);
+  }
+
+  body {
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    position: relative;
+    transition: background 160ms ease, color 160ms ease;
+  }
+
+  /* Empty <center><h1></h1></center> headers emitted by PyVis */
+  center {
+    display: none !important;
+  }
+
+  /* Gradient background sits BEHIND the graph */
+  #giftgraph-bg {
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: 100vh;
+    z-index: 0;
+    background:
+      radial-gradient(circle at 20% 20%, var(--giftgraph-glow), transparent 36%),
+      radial-gradient(circle at 80% 80%, rgba(59, 130, 246, 0.10), transparent 30%),
+      linear-gradient(180deg, var(--giftgraph-page), var(--giftgraph-page));
+  }
+
+  /* PyVis wraps #mynetwork in a bootstrap .card — neutralize it */
+  .card {
+    position: fixed !important;
+    inset: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: none !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    z-index: 1;
+  }
+
+  /* UI layer floats on top WITHOUT covering / blocking the graph */
+  #giftgraph-shell {
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: 100vh;
+    z-index: 40;
+    pointer-events: none;
+  }
+
+  #mynetwork {
+    position: absolute !important;
+    inset: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: none !important;
+    background: transparent !important;
+    float: none !important;
+    overflow: hidden !important;
+    touch-action: none;
+  }
+
+  #giftgraph-ui {
+    position: absolute;
+    top: 18px;
+    left: 18px;
+    right: 18px;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    z-index: 40;
+    pointer-events: none;
+  }
+
+  #giftgraph-card, #giftgraph-actions {
+    pointer-events: auto;
+  }
+
+  #giftgraph-card {
+    max-width: min(760px, calc(100vw - 260px));
+    padding: 14px 16px;
+    font-size: 12px;
+    border-radius: 20px;
+    background: var(--giftgraph-panel);
+    border: 1px solid var(--giftgraph-border);
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.26);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+  }
+
+  #giftgraph-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 18px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    margin-bottom: 4px;
+  }
+
+  #giftgraph-subtitle {
+    color: var(--giftgraph-muted);
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
+  #giftgraph-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 12px;
+  }
+
+  .giftgraph-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--giftgraph-border);
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--giftgraph-text);
+    font-size: 12px;
+    line-height: 1;
+    white-space: nowrap;
+  }
+
+  .giftgraph-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 999px;
+    box-shadow: 0 0 0 3px rgba(255,255,255,0.03);
+    flex: 0 0 auto;
+  }
+
+  #giftgraph-actions {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+  }
+
+  .giftgraph-button {
+    border: 1px solid var(--giftgraph-border);
+    background: var(--giftgraph-button);
+    color: var(--giftgraph-text);
+    border-radius: 16px;
+    padding: 12px 14px;
+    font-size: 13px;
+    font-weight: 700;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
+    cursor: pointer;
+    transition: transform 140ms ease, background 140ms ease, border-color 140ms ease;
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+  }
+
+  .giftgraph-button:hover {
+    transform: translateY(-1px);
+    background: var(--giftgraph-button-hover);
+  }
+
+  .giftgraph-button:active {
+    transform: translateY(0px) scale(0.99);
+  }
+
+  .giftgraph-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-width: 42px;
+    padding: 12px 14px;
+    border-radius: 16px;
+    border: 1px solid var(--giftgraph-border);
+    background: var(--giftgraph-panel);
+    color: var(--giftgraph-text);
+    font-size: 13px;
+    font-weight: 700;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
+  }
+
+  #giftgraph-hint {
+    position: absolute;
+    left: 18px;
+    bottom: 18px;
+    z-index: 40;
+    pointer-events: none;
+    color: var(--giftgraph-muted);
+    font-size: 12px;
+    background: var(--giftgraph-panel);
+    border: 1px solid var(--giftgraph-border);
+    padding: 10px 12px;
+    border-radius: 14px;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.16);
+  }
+
+  .vis-network canvas {
+    transition: transform 120ms ease-out, filter 160ms ease;
+    will-change: transform;
+  }
+
+  .vis-tooltip {
+    font-family: inherit !important;
+    border-radius: 12px !important;
+    border: 1px solid rgba(255,255,255,0.12) !important;
+    background: rgba(15, 23, 42, 0.94) !important;
+    color: #f8fafc !important;
+    box-shadow: 0 16px 60px rgba(0, 0, 0, 0.32) !important;
+    padding: 10px 12px !important;
+  }
+
+  html {
+    background: #050816;
+  }
+
+  [data-theme="dark"] {
+    --giftgraph-page: #050816;
+    --giftgraph-panel: rgba(10, 14, 30, 0.82);
+    --giftgraph-border: rgba(255, 255, 255, 0.10);
+    --giftgraph-text: #e5e7eb;
+    --giftgraph-muted: #94a3b8;
+    --giftgraph-glow: rgba(124, 58, 237, 0.18);
+    --giftgraph-button: rgba(255, 255, 255, 0.07);
+    --giftgraph-button-hover: rgba(255, 255, 255, 0.13);
+  }
+
+  [data-theme="light"] {
+    --giftgraph-page: #eff2f8;
+    --giftgraph-panel: rgba(255, 255, 255, 0.80);
+    --giftgraph-border: rgba(148, 163, 184, 0.26);
+    --giftgraph-text: #0f172a;
+    --giftgraph-muted: #475569;
+    --giftgraph-glow: rgba(59, 130, 246, 0.10);
+    --giftgraph-button: rgba(255, 255, 255, 0.82);
+    --giftgraph-button-hover: rgba(255, 255, 255, 0.96);
+  }
+</style>
+</head>
+
+
+    <body>
+        <div class="card" style="width: 100%">
+            
+            
+            <div id="mynetwork" class="card-body"></div>
+        </div>
+
+        
+        
+
+        <script type="text/javascript">
+
+              // initialize global variables.
+              var edges;
+              var nodes;
+              var allNodes;
+              var allEdges;
+              var nodeColors;
+              var originalNodes;
+              var network;
+              var container;
+              var options, data;
+              var filter = {
+                  item : '',
+                  property : '',
+                  value : []
+              };
+
+              
+
+              
+
+              // This method is responsible for drawing the graph, returns the drawn network
+              function drawGraph() {
+                  var container = document.getElementById('mynetwork');
+
+                  
+
+                  // parsing and collecting nodes and edges from the python
+                  nodes = new vis.DataSet([{"color": {"background": "#ffffff", "border": "#cbd5e1"}, "font": {"color": "#e5e7eb"}, "id": "Illiyuzi", "label": "@Illiyuzi", "shape": "dot", "size": 44, "title": "\u041d\u0430\u0447\u0430\u043b\u043e \u043f\u043e\u0438\u0441\u043a\u0430: @Illiyuzi \u00b7 \u0441\u0432\u044f\u0437\u0435\u0439: 31"}, {"color": {"background": "#7c3aed", "border": "#6d28d9"}, "font": {"color": "#e5e7eb"}, "id": "dhheeey", "label": "@dhheeey", "shape": "dot", "size": 38.0, "title": "@dhheeey \u00b7 \u0441\u0432\u044f\u0437\u0435\u0439: 27"}, {"color": {"background": "#7c3aed", "border": "#6d28d9"}, "font": {"color": "#e5e7eb"}, "id": "deruko_05", "label": "@deruko_05", "shape": "dot", "size": 21.0, "title": "@deruko_05 \u00b7 \u0441\u0432\u044f\u0437\u0435\u0439: 1"}, {"color": {"background": "#7c3aed", "border": "#6d28d9"}, "font": {"color": "#e5e7eb"}, "id": "weligi", "label": "@weligi", "shape": "dot", "size": 21.0, "title": "@weligi \u00b7 \u0441\u0432\u044f\u0437\u0435\u0439: 1"}, {"color": {"background": "#7c3aed", "border": "#6d28d9"}, "font": {"color": "#e5e7eb"}, "id": "nskssssnd", "label": "@nskssssnd", "shape": "dot", "size": 21.0, "title": "@nskssssnd \u00b7 \u0441\u0432\u044f\u0437\u0435\u0439: 1"}, {"color": {"background": "#7c3aed", "border": "#6d28d9"}, "font": {"color": "#e5e7eb"}, "id": "Hippieclown", "label": "@Hippieclown", "shape": "dot", "size": 21.0, "title": "@Hippieclown \u00b7 \u0441\u0432\u044f\u0437\u0435\u0439: 1"}]);
+                  edges = new vis.DataSet([{"arrows": "to", "color": "#4b5563", "from": "dhheeey", "id": "edge_0", "label": "", "title": "27 \u043f\u043e\u0434\u0430\u0440\u043a\u043e\u0432", "to": "Illiyuzi", "width": 7.309193652572005}, {"arrows": "to", "color": "#4b5563", "from": "deruko_05", "id": "edge_1", "label": "", "title": "1 \u043f\u043e\u0434\u0430\u0440\u043e\u043a", "to": "Illiyuzi", "width": 2.55}, {"arrows": "to", "color": "#4b5563", "from": "weligi", "id": "edge_2", "label": "", "title": "1 \u043f\u043e\u0434\u0430\u0440\u043e\u043a", "to": "Illiyuzi", "width": 2.55}, {"arrows": "to", "color": "#4b5563", "from": "nskssssnd", "id": "edge_3", "label": "", "title": "1 \u043f\u043e\u0434\u0430\u0440\u043e\u043a", "to": "Illiyuzi", "width": 2.55}, {"arrows": "to", "color": "#4b5563", "from": "Hippieclown", "id": "edge_4", "label": "", "title": "1 \u043f\u043e\u0434\u0430\u0440\u043e\u043a", "to": "Illiyuzi", "width": 2.55}]);
+
+                  nodeColors = {};
+                  allNodes = nodes.get({ returnType: "Object" });
+                  for (nodeId in allNodes) {
+                    nodeColors[nodeId] = allNodes[nodeId].color;
+                  }
+                  allEdges = edges.get({ returnType: "Object" });
+                  // adding nodes and edges to the graph
+                  data = {nodes: nodes, edges: edges};
+
+                  var options = {"nodes": {"borderWidth": 2, "shadow": {"enabled": true, "color": "rgba(124,58,237,0.22)", "size": 8, "x": 0, "y": 0}}, "edges": {"smooth": {"enabled": true, "type": "dynamic", "roundness": 0.18}, "arrows": {"to": {"enabled": true, "scaleFactor": 0.45}, "from": {"enabled": true, "scaleFactor": 0.45}}}, "layout": {"improvedLayout": false, "randomSeed": 42}, "physics": {"enabled": true, "forceAtlas2Based": {"gravitationalConstant": -350, "centralGravity": 0.005, "springLength": 350, "springConstant": 0.04, "damping": 0.45, "avoidOverlap": 1.0}, "solver": "forceAtlas2Based", "stabilization": {"enabled": true, "iterations": 300, "updateInterval": 20, "fit": true}}, "interaction": {"hover": true, "tooltipDelay": 100, "hideEdgesOnDrag": false, "dragNodes": true, "dragView": true, "zoomView": true, "navigationButtons": false, "keyboard": false}};
+
+                  
+
+
+                  
+
+                  network = new vis.Network(container, data, options);
+
+                  
+
+                  
+
+                  
+
+
+                  
+
+                  return network;
+
+              }
+              drawGraph();
+        </script>
+    
+<div id="giftgraph-bg"></div>
+<div id="giftgraph-shell" data-theme="dark" data-meta='{"start": "Illiyuzi", "paths": [], "nodes": {"Illiyuzi": {"kind": "start", "label": "@Illiyuzi", "anonymous": false, "degree": 31, "level": 0, "size": 44, "leaf": false, "parents": "[\"Hippieclown\", \"deruko_05\", \"dhheeey\", \"nskssssnd\", \"weligi\"]", "title": "Начало поиска: @Illiyuzi · связей: 31"}, "dhheeey": {"kind": "regular", "label": "@dhheeey", "anonymous": false, "degree": 27, "level": 1, "size": 38.0, "leaf": true, "parents": "[]", "title": "@dhheeey · связей: 27"}, "deruko_05": {"kind": "regular", "label": "@deruko_05", "anonymous": false, "degree": 1, "level": 1, "size": 21.0, "leaf": true, "parents": "[]", "title": "@deruko_05 · связей: 1"}, "weligi": {"kind": "regular", "label": "@weligi", "anonymous": false, "degree": 1, "level": 1, "size": 21.0, "leaf": true, "parents": "[]", "title": "@weligi · связей: 1"}, "nskssssnd": {"kind": "regular", "label": "@nskssssnd", "anonymous": false, "degree": 1, "level": 1, "size": 21.0, "leaf": true, "parents": "[]", "title": "@nskssssnd · связей: 1"}, "Hippieclown": {"kind": "regular", "label": "@Hippieclown", "anonymous": false, "degree": 1, "level": 1, "size": 21.0, "leaf": true, "parents": "[]", "title": "@Hippieclown · связей: 1"}}, "edges": [{"id": "edge_0", "from": "dhheeey", "to": "Illiyuzi", "count": 27, "mutual": false, "on_path": false, "width": 7.309193652572005, "label": "", "title": "27 подарков"}, {"id": "edge_1", "from": "deruko_05", "to": "Illiyuzi", "count": 1, "mutual": false, "on_path": false, "width": 2.55, "label": "", "title": "1 подарок"}, {"id": "edge_2", "from": "weligi", "to": "Illiyuzi", "count": 1, "mutual": false, "on_path": false, "width": 2.55, "label": "", "title": "1 подарок"}, {"id": "edge_3", "from": "nskssssnd", "to": "Illiyuzi", "count": 1, "mutual": false, "on_path": false, "width": 2.55, "label": "", "title": "1 подарок"}, {"id": "edge_4", "from": "Hippieclown", "to": "Illiyuzi", "count": 1, "mutual": false, "on_path": false, "width": 2.55, "label": "", "title": "1 подарок"}], "summary": {"nodes": 6, "edges": 5, "path_length": 0, "has_path": false, "start": "Illiyuzi"}}' data-palette='{"dark": {"page": "#050816", "page_glow": "rgba(124, 58, 237, 0.18)", "panel": "rgba(10, 14, 30, 0.72)", "panel_strong": "rgba(10, 14, 30, 0.90)", "border": "rgba(255, 255, 255, 0.10)", "text": "#e5e7eb", "muted": "#94a3b8", "start_node": "#ffffff", "path_node": "#9ca3af", "regular": "#7c3aed", "anonymous": "#f97316", "edge": "#4b5563", "edge_path": "#9ca3af", "edge_start": "#8b5cf6", "shadow": "rgba(124, 58, 237, 0.35)", "button_bg": "rgba(255, 255, 255, 0.07)", "button_hover": "rgba(255, 255, 255, 0.13)"}, "light": {"page": "#f8fafc", "page_glow": "rgba(148, 163, 184, 0.18)", "panel": "rgba(255, 255, 255, 0.74)", "panel_strong": "rgba(255, 255, 255, 0.92)", "border": "rgba(15, 23, 42, 0.10)", "text": "#0f172a", "muted": "#475569", "start_node": "#0f172a", "path_node": "#9ca3af", "regular": "#7c3aed", "anonymous": "#f97316", "edge": "#64748b", "edge_path": "#9ca3af", "edge_start": "#6d28d9", "shadow": "rgba(15, 23, 42, 0.16)", "button_bg": "rgba(15, 23, 42, 0.05)", "button_hover": "rgba(15, 23, 42, 0.09)"}}'>
+  <div id="giftgraph-ui">
+    <div id="giftgraph-card">
+      <div id="giftgraph-title">⟢ GiftGraph</div>
+      <div id="giftgraph-subtitle">
+        Узлов: <b>6</b> · Рёбер: <b>5</b>
+      </div>
+      <div id="giftgraph-legend">
+        <span class="giftgraph-pill"><span class="giftgraph-dot" data-kind="start" style="background:#ffffff"></span>Старт</span>
+        <span class="giftgraph-pill"><span class="giftgraph-dot" data-kind="regular" style="background:#7c3aed"></span>Обычный узел</span>
+        <span class="giftgraph-pill"><span class="giftgraph-dot" data-kind="path" style="background:#9ca3af"></span>Путь</span>
+        <span class="giftgraph-pill"><span class="giftgraph-dot" data-kind="anonymous" style="background:#f97316"></span>Анонимный</span>
+      </div>
+    </div>
+    <div id="giftgraph-actions">
+      <button id="giftgraph-theme-toggle" class="giftgraph-button" type="button">🌙 Тёмная</button>
+    </div>
+  </div>
+  <div id="giftgraph-hint">Колесо — zoom · Drag — панорамирование и перемещение узлов · ⚙ — настройки</div>
+</div>
+
+<script>
+(function() {
+  const META      = JSON.parse(document.getElementById('giftgraph-shell').dataset.meta);
+  const PALETTE   = JSON.parse(document.getElementById('giftgraph-shell').dataset.palette);
+  const shell     = document.getElementById('giftgraph-shell');
+  const bg        = document.getElementById('giftgraph-bg');
+  const container = document.getElementById('mynetwork');
+  const toggle    = document.getElementById('giftgraph-theme-toggle');
+  const subtitle  = document.getElementById('giftgraph-subtitle');
+  const legendDots = Array.from(document.querySelectorAll('.giftgraph-dot'));
+
+  // ── per-hover saved state (keyed by node id) ──────────────────────────
+  let _hoverSaved = {};
+
+  // ── theme helpers ─────────────────────────────────────────────────────
+  function currentTheme() {
+    try { return localStorage.getItem('giftgraph-theme') || 'dark'; }
+    catch(e) { return 'dark'; }
+  }
+  function saveTheme(t) {
+    try { localStorage.setItem('giftgraph-theme', t); } catch(e) {}
+  }
+
+  // ── network accessor ──────────────────────────────────────────────────
+  function getNetwork() {
+    try { return typeof network !== 'undefined' ? network : (window.network || null); }
+    catch(e) { return window.network || null; }
+  }
+
+  // ── node/edge style from palette ──────────────────────────────────────
+  function nodeBaseSize(info) {
+    const degree = info.degree || 0;
+    if (info.kind === 'start')     return 44;
+    if (info.kind === 'path')      return 26 + Math.min(degree, 14) * 1.2;
+    if (info.kind === 'anonymous') return 14 + Math.min(degree, 8)  * 0.5;
+    return 20 + Math.min(degree, 18) * 1.0;
+  }
+
+  function nodeStyle(info, palette) {
+    const size = nodeBaseSize(info);
+    const fontBase = info.kind === 'start' ? 17 : info.kind === 'anonymous' ? 9 : 13;
+    if (info.kind === 'start')
+      return { color: { background: palette.start_node, border: '#cbd5e1' },
+               size, font: { color: palette.text,  size: fontBase, bold: true  } };
+    if (info.kind === 'path')
+      return { color: { background: palette.path_node,  border: '#9ca3af' },
+               size, font: { color: palette.text,  size: fontBase, bold: false } };
+    if (info.kind === 'anonymous')
+      return { color: { background: palette.anonymous,  border: '#ea8a38' },
+               size, font: { color: palette.muted, size: fontBase, bold: false } };
+    return   { color: { background: palette.regular,    border: '#6d28d9' },
+               size, font: { color: palette.text,  size: fontBase, bold: false } };
+  }
+
+  function edgeStyle(edge, palette) {
+    const color = edge.on_path ? palette.edge_path : palette.edge;
+    const arrows = edge.mutual
+      ? { to: { enabled: true, scaleFactor: 0.45 }, from: { enabled: true, scaleFactor: 0.45 } }
+      : { to: { enabled: true, scaleFactor: 0.45 }, from: { enabled: false } };
+    return { color, width: edge.width, arrows };
+  }
+
+  // build a fast id→meta lookup for edges
+  const _edgeMeta = {};
+  META.edges.forEach(e => { _edgeMeta[e.id] = e; });
+
+  // ── theme ─────────────────────────────────────────────────────────────
+  function applyTheme(themeName) {
+    // restore any hovered node first, then clear state
+    _restoreAllHovered();
+    _hoverSaved = {};
+
+    const palette = PALETTE[themeName] || PALETTE.dark;
+    const net = getNetwork();
+
+    document.documentElement.setAttribute('data-theme', themeName);
+    if (shell) shell.setAttribute('data-theme', themeName);
+
+    const grad = `radial-gradient(circle at 20% 20%, ${palette.page_glow}, transparent 36%),`
+               + `radial-gradient(circle at 80% 80%, rgba(59,130,246,0.10), transparent 30%),`
+               + `linear-gradient(180deg, ${palette.page}, ${palette.page})`;
+    [document.body, bg].forEach(el => {
+      if (!el) return;
+      el.style.background = palette.page;
+      el.style.backgroundImage = grad;
+    });
+    if (container) container.style.background = 'transparent';
+    if (toggle)   toggle.textContent = themeName === 'light' ? '🌙 Тёмная' : '☀️ Светлая';
+    if (subtitle) subtitle.style.color = palette.muted;
+    legendDots.forEach(dot => {
+      const k = dot.getAttribute('data-kind');
+      if (k === 'start')     dot.style.background = palette.start_node;
+      if (k === 'regular')   dot.style.background = palette.regular;
+      if (k === 'path')      dot.style.background = palette.path_node;
+      if (k === 'anonymous') dot.style.background = palette.anonymous;
+    });
+
+    try {
+      if (net && net.body && net.body.data) {
+        try {
+          const nodeUpdates = Object.entries(META.nodes).map(([id, info]) => {
+            const st = nodeStyle(info, palette);
+            return { id, color: st.color, size: st.size, font: st.font, title: info.title };
+          });
+          const edgeUpdates = META.edges.map(edge => {
+            const st = edgeStyle(edge, palette);
+            return { id: edge.id, color: st.color, width: st.width, arrows: st.arrows };
+          });
+          net.body.data.nodes.update(nodeUpdates);
+          net.body.data.edges.update(edgeUpdates);
+        } catch(err) {
+          console.warn('GiftGraph applyTheme error:', err);
+        }
+      }
+    } catch(e) {}
+  }
+
+  function bindToggle() {
+    if (!toggle) return;
+    toggle.addEventListener('click', () => {
+      const next = currentTheme() === 'light' ? 'dark' : 'light';
+      saveTheme(next);
+      applyTheme(next);
+    });
+  }
+
+  // ── parallax ──────────────────────────────────────────────────────────
+  function initParallax() {
+    const canvas = document.querySelector('#mynetwork canvas');
+    if (!canvas) return;
+    let raf = 0, lx = 0.5, ly = 0.5;
+    const paint = () => {
+      raf = 0;
+      const dx = (lx - 0.5) * 10, dy = (ly - 0.5) * 10;
+      canvas.style.transform = `translate3d(${dx}px,${dy}px,0)`;
+    };
+    canvas.addEventListener('pointermove', ev => {
+      const r = canvas.getBoundingClientRect();
+      if (!r.width) return;
+      lx = (ev.clientX - r.left) / r.width;
+      ly = (ev.clientY - r.top)  / r.height;
+      if (!raf) raf = requestAnimationFrame(paint);
+    }, { passive: true });
+    canvas.addEventListener('pointerleave', () => {
+      canvas.style.transform = 'translate3d(0,0,0)';
+    }, { passive: true });
+  }
+
+  // ── settings panel ────────────────────────────────────────────────────
+  function buildSettingsPanel() {
+    if (!shell || document.getElementById('giftgraph-settings-panel')) return;
+    const panel = document.createElement('div');
+    panel.id = 'giftgraph-settings-panel';
+    panel.style.cssText = 'position:absolute;right:18px;bottom:18px;z-index:40;pointer-events:auto;display:flex;flex-direction:column;gap:8px;align-items:flex-end;';
+    panel.innerHTML = `
+      <div id="gg-sbox" style="background:var(--giftgraph-panel);border:1px solid var(--giftgraph-border);border-radius:14px;padding:14px;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);width:230px;display:none;box-shadow:0 20px 60px rgba(0,0,0,0.3);">
+        <div style="font-size:13px;font-weight:700;color:var(--giftgraph-text);margin-bottom:12px;">⚙ Настройки</div>
+        <div style="display:flex;flex-direction:column;gap:12px;">
+          <label style="font-size:11px;color:var(--giftgraph-muted);display:block;">
+            Размер узлов <span id="vns" style="float:right;font-weight:600;color:var(--giftgraph-text);">1.0×</span>
+            <input id="sns" type="range" min="0.5" max="2.5" step="0.05" value="1" style="width:100%;margin-top:4px;accent-color:#7c3aed;cursor:pointer;">
+          </label>
+          <label style="font-size:11px;color:var(--giftgraph-muted);display:block;">
+            Толщина линий <span id="ves" style="float:right;font-weight:600;color:var(--giftgraph-text);">1.0×</span>
+            <input id="ses" type="range" min="0.5" max="3.0" step="0.05" value="1" style="width:100%;margin-top:4px;accent-color:#7c3aed;cursor:pointer;">
+          </label>
+          <label style="font-size:11px;color:var(--giftgraph-muted);display:block;">
+            Расстояние <span id="vsp" style="float:right;font-weight:600;color:var(--giftgraph-text);">350</span>
+            <input id="ssp" type="range" min="80" max="700" step="10" value="350" style="width:100%;margin-top:4px;accent-color:#7c3aed;cursor:pointer;">
+          </label>
+          <label style="font-size:11px;color:var(--giftgraph-muted);display:block;">
+            Расталкивание <span id="vrp" style="float:right;font-weight:600;color:var(--giftgraph-text);">350</span>
+            <input id="srp" type="range" min="50" max="800" step="10" value="350" style="width:100%;margin-top:4px;accent-color:#7c3aed;cursor:pointer;">
+          </label>
+          <button id="btn-apply" class="giftgraph-button" type="button" style="width:100%;margin-top:2px;">Применить</button>
+          <button id="btn-reshuffle" class="giftgraph-button" type="button" style="width:100%;">🔀 Перемешать</button>
+        </div>
+      </div>
+      <button id="btn-settings-toggle" class="giftgraph-button" type="button" title="Настройки">⚙</button>
+    `;
+    shell.appendChild(panel);
+
+    // slider live display
+    const sliders = [
+      { s: 'sns', v: 'vns', fmt: x => x + '×' },
+      { s: 'ses', v: 'ves', fmt: x => x + '×' },
+      { s: 'ssp', v: 'vsp', fmt: x => x       },
+      { s: 'srp', v: 'vrp', fmt: x => x       },
+    ];
+    sliders.forEach(({ s, v, fmt }) => {
+      const el = document.getElementById(s);
+      const vl = document.getElementById(v);
+      if (!el || !vl) return;
+      el.addEventListener('input', () => { vl.textContent = fmt(el.value); });
+    });
+
+    document.getElementById('btn-settings-toggle').addEventListener('click', () => {
+      const box = document.getElementById('gg-sbox');
+      box.style.display = box.style.display === 'none' ? 'block' : 'none';
+    });
+    document.getElementById('btn-apply').addEventListener('click', applySettings);
+    document.getElementById('btn-reshuffle').addEventListener('click', reshuffleGraph);
+  }
+
+  function _getSliders() {
+    return {
+      nodeScale: parseFloat(document.getElementById('sns').value) || 1,
+      edgeScale: parseFloat(document.getElementById('ses').value) || 1,
+      springLen: parseInt(document.getElementById('ssp').value)   || 350,
+      repulsion: -(parseInt(document.getElementById('srp').value) || 350),
+    };
+  }
+
+  function _applyScales(net, nodeScale, edgeScale) {
+    // nodes: iterate via DataSet.get() by ids from META
+    const nodeIds = Object.keys(META.nodes);
+    const nodeUpdates = nodeIds.map(id => {
+      const info = META.nodes[id];
+      const base = nodeBaseSize(info);
+      const baseFont = info.kind === 'start' ? 17 : info.kind === 'anonymous' ? 9 : 13;
+      return { id, size: base * nodeScale, font: { size: Math.round(baseFont * nodeScale) } };
+    });
+    net.body.data.nodes.update(nodeUpdates);
+
+    // edges: use id-based lookup
+    const edgeUpdates = META.edges.map(e => ({ id: e.id, width: e.width * edgeScale }));
+    net.body.data.edges.update(edgeUpdates);
+  }
+
+  function applySettings() {
+    const net = getNetwork();
+    if (!net || !net.body || !net.body.data) return;
+    _restoreAllHovered();
+    _hoverSaved = {};
+    const { nodeScale, edgeScale, springLen, repulsion } = _getSliders();
+    net.setOptions({
+      physics: {
+        enabled: true,
+        solver: 'forceAtlas2Based',
+        forceAtlas2Based: {
+          gravitationalConstant: repulsion,
+          centralGravity: 0.005,
+          springLength: springLen,
+          springConstant: 0.04,
+          damping: 0.45,
+          avoidOverlap: 1.0,
+        },
+        stabilization: { enabled: true, iterations: 250, fit: true },
+      },
+    });
+    _applyScales(net, nodeScale, edgeScale);
+  }
+
+  function reshuffleGraph() {
+    const net = getNetwork();
+    if (!net) return;
+    _restoreAllHovered();
+    _hoverSaved = {};
+    const { nodeScale, edgeScale, springLen, repulsion } = _getSliders();
+    // randomise positions slightly
+    const pos = net.getPositions();
+    const updates = Object.keys(pos).map(id => ({
+      id,
+      x: pos[id].x + (Math.random() - 0.5) * 400,
+      y: pos[id].y + (Math.random() - 0.5) * 400,
+    }));
+    net.body.data.nodes.update(updates);
+    net.setOptions({
+      physics: {
+        enabled: true,
+        solver: 'forceAtlas2Based',
+        forceAtlas2Based: {
+          gravitationalConstant: repulsion,
+          centralGravity: 0.005,
+          springLength: springLen,
+          springConstant: 0.04,
+          damping: 0.45,
+          avoidOverlap: 1.0,
+        },
+        stabilization: { enabled: true, iterations: 250, fit: true },
+      },
+    });
+    _applyScales(net, nodeScale, edgeScale);
+  }
+
+  // ── hover ─────────────────────────────────────────────────────────────
+  function _restoreAllHovered() {
+    const net = getNetwork();
+    if (!net || !net.body || !net.body.data) return;
+    Object.keys(_hoverSaved).forEach(id => _restoreNode(net, id));
+  }
+
+  function _restoreNode(net, id) {
+    const s = _hoverSaved[id];
+    if (!s) return;
+    net.body.data.nodes.update({
+      id,
+      size:        s.size,
+      font:        s.font,
+      color:       s.color,
+      borderWidth: s.borderWidth,
+      shadow:      s.shadow,
+    });
+    delete _hoverSaved[id];
+  }
+
+  function initHover() {
+    const net = getNetwork();
+    if (!net || !net.on) return;
+
+    net.on('hoverNode', p => {
+      if (_hoverSaved[p.node]) return;   // already saved
+      const d = net.body.data.nodes.get(p.node);
+      if (!d) return;
+
+      // deep-copy the current state we need to restore
+      _hoverSaved[p.node] = {
+        size:        d.size,
+        font:        d.font ? { ...d.font } : { size: 13 },
+        color:       d.color ? (typeof d.color === 'object'
+                       ? { background: d.color.background, border: d.color.border }
+                       : d.color) : {},
+        borderWidth: d.borderWidth != null ? d.borderWidth : 2,
+        shadow:      d.shadow ? { ...d.shadow } : { enabled: false, color: 'rgba(0,0,0,0)', size: 8, x: 0, y: 0 },
+      };
+
+      const newSize = d.size * 1.75;
+      net.body.data.nodes.update({
+        id:          p.node,
+        size:        newSize,
+        font:        { size: Math.round((d.font && d.font.size || 13) * 1.55), color: d.font && d.font.color, bold: d.font && d.font.bold },
+        borderWidth: 4,
+        shadow:      { enabled: true, color: 'rgba(168,85,247,0.75)', size: 28, x: 0, y: 0 },
+      });
+    });
+
+    net.on('blurNode', p => {
+      _restoreNode(net, p.node);
+    });
+  }
+
+  // ── leaf pull ─────────────────────────────────────────────────────────
+  function postProcessLayout() {
+    const net = getNetwork();
+    if (!net || !net.body || !net.body.data) return;
+    const positions = net.getPositions();
+    const updates = [];
+
+    Object.entries(META.nodes).forEach(([id, info]) => {
+      if (!info.leaf) return;
+      let parentIds = [];
+      try { parentIds = JSON.parse(info.parents || '[]'); } catch(e) {}
+      if (!parentIds.length) return;
+
+      let sx = 0, sy = 0, cnt = 0;
+      parentIds.forEach(pid => {
+        const p = positions[pid];
+        if (p) { sx += p.x; sy += p.y; cnt++; }
+      });
+      if (!cnt) return;
+
+      const cx = sx / cnt, cy = sy / cnt;
+      const cur = positions[id];
+      if (!cur) return;
+      const pull = 0.75;
+      updates.push({ id, x: cur.x + (cx - cur.x) * pull, y: cur.y + (cy - cur.y) * pull });
+    });
+
+    if (updates.length) {
+      net.body.data.nodes.update(updates);
+      net.fit();
+    }
+  }
+
+  // ── bootstrap ─────────────────────────────────────────────────────────
+  buildSettingsPanel();
+  bindToggle();
+  initParallax();
+
+  // Apply theme immediately so CSS vars are correct before network loads
+  (function initTheme() {
+    const t = currentTheme();
+    document.documentElement.setAttribute('data-theme', t);
+    if (shell) shell.setAttribute('data-theme', t);
+    const palette = PALETTE[t] || PALETTE.dark;
+    const grad = `radial-gradient(circle at 20% 20%, ${palette.page_glow}, transparent 36%),`
+               + `radial-gradient(circle at 80% 80%, rgba(59,130,246,0.10), transparent 30%),`
+               + `linear-gradient(180deg, ${palette.page}, ${palette.page})`;
+    [document.body, bg].forEach(el => {
+      if (!el) return;
+      el.style.background = palette.page;
+      el.style.backgroundImage = grad;
+    });
+    if (toggle) toggle.textContent = t === 'light' ? '🌙 Тёмная' : '☀️ Светлая';
+    if (subtitle) subtitle.style.color = palette.muted;
+    legendDots.forEach(dot => {
+      const k = dot.getAttribute('data-kind');
+      if (k === 'start')     dot.style.background = palette.start_node;
+      if (k === 'regular')   dot.style.background = palette.regular;
+      if (k === 'path')      dot.style.background = palette.path_node;
+      if (k === 'anonymous') dot.style.background = palette.anonymous;
+    });
+  })();
+
+  // Wait for vis.js to expose `network`, then wire events and apply theme to nodes
+  let _bootAttempts = 0;
+  function boot() {
+    const net = getNetwork();
+    if (!net || !net.on) {
+      if (++_bootAttempts < 60) setTimeout(boot, 100);
+      return;
+    }
+    initHover();
+    // Apply theme to nodes/edges now that network exists
+    applyTheme(currentTheme());
+    // Re-apply after layout stabilises (positions may shift node sizes)
+    const onStable = () => {
+      postProcessLayout();
+      applyTheme(currentTheme());
+    };
+    net.once('stabilizationIterationsDone', onStable);
+    net.once('stabilized', onStable);
+  }
+  boot();
+})();
+</script>
+</body>
+</html>
