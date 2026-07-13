@@ -1,0 +1,18 @@
+Options -Indexes
+DirectoryIndex index.php
+
+RewriteEngine On
+RewriteBase /
+
+# Keep Authorization available for PHP on shared Apache/FastCGI setups.
+SetEnvIf Authorization "(.*)" HTTP_AUTHORIZATION=$1
+
+RewriteRule ^api/graphs/?$ api/graphs/index.php [L,QSA]
+RewriteRule ^api/graphs/([A-Za-z0-9_-]+)/?$ api/graphs/index.php?gid=$1 [L,QSA]
+RewriteRule ^view/([A-Za-z0-9_-]+)/?$ view.php?gid=$1 [L,QSA]
+RewriteRule ^graph/([A-Za-z0-9_-]+)/?$ graph.php?gid=$1 [L,QSA]
+RewriteRule ^health/?$ health.php [L,QSA]
+
+<FilesMatch "^(_|config\.local\.php|app_lib\.php)">
+  Require all denied
+</FilesMatch>

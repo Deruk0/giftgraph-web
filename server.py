@@ -6,26 +6,33 @@ import json
 import os
 import re
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from html import escape
 
-from flask import Flask, jsonify, render_template_string, request, send_from_directory, abort
+from flask import Flask, abort, jsonify, render_template_string, request, send_from_directory
 
 app = Flask(__name__)
 
-GRAPHS_DIR = os.path.join(os.path.dirname(__file__), "graphs")
+BASE_DIR = os.path.dirname(__file__)
+GRAPHS_DIR = os.path.join(BASE_DIR, "graphs")
 INDEX_PATH = os.path.join(GRAPHS_DIR, "_index.json")
+ASSETS_DIR = os.path.join(BASE_DIR, "htdocs", "assets")
 API_SECRET = os.getenv("GIFTGRAPH_SECRET", "").strip()
 
 os.makedirs(GRAPHS_DIR, exist_ok=True)
 
-# ── Helpers ───────────────────────────────────────────────────────────────
 
 def _strip_html(s: str) -> str:
     s = re.sub(r"<[^>]+>", "", s)
-    s = s.replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", '"').replace("&#39;", "'")
+    s = (
+        s.replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", '"')
+        .replace("&#39;", "'")
+    )
     return s.strip()
 
-# ── Индекс ────────────────────────────────────────────────────────────────
 
 def _load_index() -> dict:
     if os.path.exists(INDEX_PATH):
@@ -36,8 +43,9 @@ def _load_index() -> dict:
             idx = {"graphs": {}}
     else:
         idx = {"graphs": {}}
+
     dirty = False
-    for gid, info in idx.get("graphs", {}).items():
+    for _gid, info in idx.get("graphs", {}).items():
         raw = info.get("label", "")
         clean = _strip_html(raw)
         if clean != raw:
@@ -47,298 +55,413 @@ def _load_index() -> dict:
         _save_index(idx)
     return idx
 
+
 def _save_index(idx: dict) -> None:
     with open(INDEX_PATH, "w", encoding="utf-8") as f:
         json.dump(idx, f, ensure_ascii=False, indent=2)
+
 
 def _api_key_ok() -> bool:
     if not API_SECRET:
         return True
     auth = request.headers.get("Authorization", "")
-    return auth == f"Bearer {API_SECRET}"
+    plain = request.headers.get("X-GiftGraph-Secret", "")
+    return auth == f"Bearer {API_SECRET}" or plain == API_SECRET
 
-# ── Инжекция тулбара в HTML графа ─────────────────────────────────────────
 
-TOOLBAR_CSS = """
-<style id="giftgraph-toolbar-css">
-  #giftgraph-toolbar {
-    position: fixed; top: 0; left: 0; right: 0; z-index: 100;
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 0.55rem 1rem; gap: 0.75rem;
-    background: rgba(10,14,30,0.88);
-    border-bottom: 1px solid rgba(255,255,255,0.07);
-    backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
-    pointer-events: auto;
-  }
-  #giftgraph-toolbar .tb-left { display:flex; align-items:center; gap:0.5rem; min-width:0; flex:1; }
-  #giftgraph-toolbar .tb-right { display:flex; align-items:center; gap:0.4rem; flex-shrink:0; }
-  #giftgraph-toolbar .tb-title {
-    font-weight:700; font-size:0.9rem; color:#e5e7eb;
-    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
-  }
-  #giftgraph-toolbar .tb-meta {
-    font-size:0.68rem; color:#64748b; white-space:nowrap;
-  }
-  #giftgraph-toolbar .tb-btn {
-    display:inline-flex; align-items:center; gap:0.25rem;
-    padding:0.3rem 0.6rem; border-radius:7px; font-size:0.75rem;
-    font-weight:600; cursor:pointer; border:1px solid rgba(255,255,255,0.10);
-    background:rgba(255,255,255,0.05); color:#94a3b8;
-    transition:all 0.15s; text-decoration:none; white-space:nowrap;
-  }
-  #giftgraph-toolbar .tb-btn:hover { background:rgba(255,255,255,0.12); color:#e5e7eb; }
-  #giftgraph-toolbar .tb-btn.danger { color:#f87171; }
-  #giftgraph-toolbar .tb-btn.danger:hover { background:rgba(248,113,113,0.12); color:#fca5a5; border-color:rgba(248,113,113,0.3); }
-  #giftgraph-toolbar .tb-btn.primary { background:rgba(124,58,237,0.15); border-color:rgba(124,58,237,0.25); color:#c4b5fd; }
-  #giftgraph-toolbar .tb-btn.primary:hover { background:rgba(124,58,237,0.25); }
-
-  /* Shift graph UI down to not overlap toolbar */
-  #giftgraph-ui { top: 56px !important; transition: top 0.25s ease; }
-
-  #giftgraph-toolbar::after {
-    content:''; position:absolute; bottom:-1px; left:0; right:0; height:1px;
-    background: linear-gradient(90deg, transparent, rgba(124,58,237,0.3), transparent);
-    pointer-events:none;
-  }
-  [data-theme="light"] #giftgraph-toolbar { background:rgba(248,250,252,0.82); border-color:rgba(0,0,0,0.06); }
-  [data-theme="light"] #giftgraph-toolbar .tb-title { color:#0f172a; }
-  [data-theme="light"] #giftgraph-toolbar .tb-meta { color:#94a3b8; }
-  [data-theme="light"] #giftgraph-toolbar .tb-btn { background:rgba(0,0,0,0.04); color:#64748b; border-color:rgba(0,0,0,0.08); }
-  [data-theme="light"] #giftgraph-toolbar .tb-btn:hover { background:rgba(0,0,0,0.08); color:#0f172a; }
-
-  @media (max-width:500px) {
-    #giftgraph-toolbar { padding:0.4rem 0.6rem; }
-    #giftgraph-toolbar .tb-meta { display:none; }
-    #giftgraph-toolbar .tb-title { font-size:0.8rem; }
-  }
-</style>
-"""
+TOOLBAR_ASSETS = '<link rel="stylesheet" href="/assets/giftgraph-graph.css">'
 
 TOOLBAR_HTML = """
-<div id="giftgraph-toolbar">
+<canvas id="giftgraph-ambient-canvas" aria-hidden="true"></canvas>
+<div id="giftgraph-toolbar" role="region" aria-label="Панель графа">
   <div class="tb-left">
-    <a href="/" class="tb-btn">← Назад</a>
-    <span class="tb-title">__LABEL__</span>
-    <span class="tb-meta">__META__</span>
+    <a href="/" class="tb-btn tb-back tb-icon-text">
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M15 6l-6 6 6 6"/><path d="M9 12h11"/></svg>
+      <span>Архив</span>
+    </a>
+    <span class="tb-sigil" aria-hidden="true">
+      <svg viewBox="0 0 48 48" focusable="false">
+        <path d="M8 28C15 11 33 7 40 20" />
+        <path d="M9 29C18 39 34 39 41 22" />
+        <circle cx="13" cy="28" r="3.6" />
+        <circle cx="32" cy="13" r="3.6" />
+        <circle cx="39" cy="22" r="3.6" />
+      </svg>
+    </span>
+    <span class="tb-details">
+      <span class="tb-kicker">снимок графа</span>
+      <span class="tb-title">__LABEL__</span>
+      <span class="tb-meta" data-gg-nodes="__NODES__" data-gg-edges="__EDGES__" data-gg-path-length="__PATH_LENGTH__">__META__</span>
+    </span>
   </div>
   <div class="tb-right">
-    <button class="tb-btn" onclick="(function(){
-      var u = window.location.href;
-      navigator.clipboard.writeText(u).then(function(){
-        var b = document.querySelector('#giftgraph-toolbar .tb-btn.primary');
-        var orig = b.textContent;
-        b.textContent = '✓ Скопировано!';
-        setTimeout(function(){ b.textContent = orig; }, 1500);
-      });
-    })()">📋 Копировать</button>
-    <button class="tb-btn danger" onclick="(function(){
-      if (!confirm('Удалить этот граф навсегда?')) return;
-      fetch('/api/graphs/__GID__', {method:'DELETE'}).then(function(r){
-        if (r.ok) { window.location.href = '/'; }
-        else { alert('Ошибка удаления'); }
-      });
-    })()">🗑 Удалить</button>
+    <button class="tb-btn tb-icon-text" id="giftgraph-settings-toggle" type="button" aria-controls="giftgraph-theme-panel" aria-expanded="false">
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 7h16M7 12h10M10 17h4"/><circle cx="8" cy="7" r="2"/><circle cx="16" cy="12" r="2"/><circle cx="12" cy="17" r="2"/></svg>
+      <span>Настройки</span>
+    </button>
+    <button class="tb-btn tb-copy tb-icon-text" type="button" onclick="(function(btn){
+      var label = btn.querySelector('.tb-btn-label');
+      var orig = label ? label.textContent : btn.textContent;
+      var i18n = window.GiftGraphI18n;
+      navigator.clipboard.writeText(window.location.href).then(function(){
+        var copied = i18n && i18n.t ? i18n.t('copied') : 'Скопировано';
+        if (label) label.textContent = copied;
+        else btn.textContent = copied;
+        setTimeout(function(){ if (label) label.textContent = orig; else btn.textContent = orig; }, 1500);
+      }).catch(function(){ if (window.giftgraphNotify) window.giftgraphNotify(i18n && i18n.t ? i18n.t('copyFailed') : 'Не удалось скопировать ссылку', true); });
+    })(this)">
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 9h10v10H9z"/><path d="M5 15V5h10"/></svg>
+      <span class="tb-btn-label">Копировать</span>
+    </button>
+    <button class="tb-btn danger tb-icon-text" type="button" data-gid="__GID_ATTR__" onclick="if (window.deleteGraphFromToolbar) window.deleteGraphFromToolbar(this)">
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 7h16M10 11v6M14 11v6M7 7l1 13h8l1-13M9 7l1-3h4l1 3"/></svg>
+      <span>Удалить</span>
+    </button>
+  </div>
   </div>
 </div>
+<div id="giftgraph-theme-panel" aria-hidden="true">
+  <div class="tb-panel-head">
+    <span>
+      <span class="tb-panel-kicker">визуальный режим</span>
+      <strong>Настройки графа</strong>
+    </span>
+    <button class="tb-icon" id="giftgraph-settings-close" type="button" aria-label="Закрыть настройки">
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
+  </div>
+  <div class="tb-settings-grid">
+    <section class="tb-section">
+      <div class="tb-section-title">Язык интерфейса</div>
+      <div class="tb-mode-row tb-language-row" role="group" aria-label="Язык интерфейса">
+        <button type="button" class="tb-choice" data-language-choice="ru">Русский</button>
+        <button type="button" class="tb-choice" data-language-choice="en">English</button>
+      </div>
+      <div class="tb-section-title">Вид</div>
+      <div class="tb-mode-row">
+        <button type="button" class="tb-choice" data-gg-mode-choice="light">Светлая</button>
+        <button type="button" class="tb-choice" data-gg-mode-choice="dark">Темная</button>
+      </div>
+      <div class="tb-palettes">
+        <button type="button" class="tb-palette" data-gg-palette-choice="ember"><span>Studio Violet</span><i class="tb-swatch" style="--a:#7a3cff;--b:#b08cff;--c:#eadcff"></i></button>
+        <button type="button" class="tb-palette" data-gg-palette-choice="reef"><span>Signal Blue</span><i class="tb-swatch" style="--a:#2f6bff;--b:#79a8ff;--c:#dbe7ff"></i></button>
+        <button type="button" class="tb-palette" data-gg-palette-choice="iris"><span>Rose Index</span><i class="tb-swatch" style="--a:#ca3c76;--b:#ff8bb7;--c:#ffd7e8"></i></button>
+        <button type="button" class="tb-palette" data-gg-palette-choice="graphite"><span>Ink Contrast</span><i class="tb-swatch" style="--a:#22201c;--b:#7b7267;--c:#e3d8c8"></i></button>
+      </div>
+      <div class="tb-color-grid" aria-label="Точная настройка цветов">
+        <label class="tb-color">Акцент <input id="gg-theme-color-accent" type="color" data-gg-theme-color="accent"></label>
+        <label class="tb-color">Узлы <input id="gg-theme-color-accent-2" type="color" data-gg-theme-color="accent2"></label>
+        <label class="tb-color">Мягкий <input id="gg-theme-color-accent-3" type="color" data-gg-theme-color="accent3"></label>
+      </div>
+      <button type="button" class="tb-choice" id="gg-theme-color-reset">Сбросить цвета</button>
+    </section>
+    <section class="tb-section">
+      <div class="tb-section-title">Граф</div>
+      <label class="tb-range">Узлы <span id="gg-node-scale-value">1.0</span><input id="gg-node-scale" type="range" min="0.65" max="1.8" step="0.05" value="1"></label>
+      <label class="tb-range">Связи <span id="gg-edge-scale-value">1.0</span><input id="gg-edge-scale" type="range" min="0.55" max="2.2" step="0.05" value="1"></label>
+      <label class="tb-range">Длина связей <span id="gg-spring-value">350</span><input id="gg-spring-length" type="range" min="120" max="680" step="10" value="350"></label>
+      <label class="tb-switch"><input id="gg-grid-toggle" type="checkbox" checked><span>Сетка</span></label>
+      <label class="tb-range">Яркость сетки <span id="gg-grid-value">1.0</span><input id="gg-grid-strength" type="range" min="0" max="1.6" step="0.05" value="1"></label>
+      <div class="tb-action-row">
+        <button type="button" class="tb-choice" data-gg-action="fit">Показать весь граф</button>
+        <button type="button" class="tb-choice" data-gg-action="stabilize">Разложить узлы</button>
+      </div>
+    </section>
+    <section class="tb-section tb-section-wide">
+      <div class="tb-section-title">Автоудаление</div>
+      <div class="tb-auto-row" data-gg-autodelete-group>
+        <button type="button" class="tb-choice" data-gg-autodelete="0">Выкл</button>
+        <button type="button" class="tb-choice" data-gg-autodelete="60">1 час</button>
+        <button type="button" class="tb-choice" data-gg-autodelete="1440">24 ч</button>
+        <button type="button" class="tb-choice" data-gg-autodelete="10080">7 дн</button>
+      </div>
+      <div class="tb-auto-status" id="gg-auto-delete-status">Не запланировано</div>
+    </section>
+  </div>
+</div>
+<script src="/assets/giftgraph-i18n.js"></script>
+<script src="/assets/giftgraph-graph.js"></script>
 """
 
+
 def _inject_toolbar(html: str, gid: str, info: dict) -> str:
-    """Вшивает тулбар в HTML-файл графа."""
-    label = info.get("label", gid)
-    nodes = info.get("nodes", "?")
-    edges = info.get("edges", "?")
-    pl = info.get("path_length", 0)
-    meta = f"{nodes} узлов · {edges} рёбер"
-    if pl:
-        meta += f" · путь {pl} шаг."
+    label = escape(str(info.get("label", gid)))
+    nodes = escape(str(info.get("nodes", "?")))
+    edges = escape(str(info.get("edges", "?")))
+    try:
+        path_length = int(info.get("path_length", 0) or 0)
+    except (TypeError, ValueError):
+        path_length = 0
 
-    toolbar_html = TOOLBAR_HTML.replace("__LABEL__", label).replace("__META__", meta).replace("__GID__", gid)
+    meta = f"{nodes} узлов &middot; {edges} ребер"
+    if path_length:
+        meta += f" &middot; путь {path_length} шаг."
 
-    # Inject toolbar CSS before </head>
-    html = html.replace("</head>", TOOLBAR_CSS + "\n</head>")
+    toolbar_html = (
+        TOOLBAR_HTML.replace("__LABEL__", label)
+        .replace("__META__", meta)
+        .replace("__NODES__", escape(str(info.get("nodes", "0")), quote=True))
+        .replace("__EDGES__", escape(str(info.get("edges", "0")), quote=True))
+        .replace("__PATH_LENGTH__", escape(str(path_length), quote=True))
+        .replace("__GID_ATTR__", escape(gid, quote=True))
+    )
 
-    # Insert <title> after <head>
-    html = html.replace("<head>", f"<head>\n<title>{label} — GiftGraph</title>", 1)
+    if re.search(r"</head>", html, re.IGNORECASE):
+        html = re.sub(r"</head>", TOOLBAR_ASSETS + "\n</head>", html, count=1, flags=re.IGNORECASE)
+    else:
+        html = TOOLBAR_ASSETS + "\n" + html
 
-    # Inject toolbar HTML right after <body ...>
-    body_match = re.search(r"<body[^>]*>", html)
+    html = re.sub(
+        r"<head([^>]*)>",
+        lambda m: f"<head{m.group(1)}>\n<title>{label} - GiftGraph</title>",
+        html,
+        count=1,
+        flags=re.IGNORECASE,
+    )
+
+    body_match = re.search(r"<body[^>]*>", html, re.IGNORECASE)
     if body_match:
         insert_pos = body_match.end()
         html = html[:insert_pos] + "\n" + toolbar_html + html[insert_pos:]
-
+    else:
+        html = toolbar_html + "\n" + html
     return html
 
 
-# ── Роуты ─────────────────────────────────────────────────────────────────
-
 HOME_TEMPLATE = r"""<!DOCTYPE html>
-<html lang="ru">
+<html lang="ru" data-language="ru" data-palette="ember" data-mode="light">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>GiftGraph Web</title>
-<style>
-  *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
-  body {
-    font-family: Inter, ui-sans-serif, system-ui, -apple-system, sans-serif;
-    background: #050816; color: #e5e7eb; min-height: 100vh; overflow-x: hidden;
-  }
-  .bg-glow {
-    position: fixed; inset:0;
-    background: radial-gradient(ellipse at 20% 20%, rgba(124,58,237,0.12), transparent 50%),
-                radial-gradient(ellipse at 80% 70%, rgba(59,130,246,0.08), transparent 40%);
-    pointer-events: none; z-index:0;
-  }
-  .container { max-width: 800px; margin:0 auto; padding: 3rem 1.5rem; position:relative; z-index:1; }
-
-  header { text-align:center; margin-bottom:3rem; }
-  header h1 {
-    font-size:2.25rem; font-weight:800; letter-spacing:-0.03em;
-    background: linear-gradient(135deg, #c4b5fd, #7c3aed, #3b82f6);
-    -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text;
-  }
-  header p { color:#94a3b8; font-size:0.95rem; margin-top:0.5rem; }
-
-  .stats { display:flex; gap:1rem; justify-content:center; margin-bottom:2.5rem; flex-wrap:wrap; }
-  .stat {
-    background:rgba(10,14,30,0.60); border:1px solid rgba(255,255,255,0.08);
-    border-radius:12px; padding:0.75rem 1.25rem; text-align:center; min-width:80px;
-    backdrop-filter:blur(12px);
-  }
-  .stat .num { font-size:1.5rem; font-weight:700; color:#c4b5fd; }
-  .stat .lbl { font-size:0.7rem; color:#64748b; text-transform:uppercase; letter-spacing:0.05em; }
-
-  .graphs-list { display:flex; flex-direction:column; gap:0.75rem; }
-  .graph-card {
-    background:rgba(10,14,30,0.55); border:1px solid rgba(255,255,255,0.07);
-    border-radius:14px; padding:1rem 1.25rem;
-    display:flex; justify-content:space-between; align-items:center;
-    transition: border-color 0.2s, background 0.2s, transform 0.15s, opacity 0.3s;
-    backdrop-filter:blur(10px); gap:1rem;
-  }
-  .graph-card:hover { border-color:rgba(124,58,237,0.35); background:rgba(10,14,30,0.70); transform:translateY(-1px); }
-  .graph-card .info { min-width:0; flex:1; }
-  .graph-card .info a {
-    color:#c4b5fd; text-decoration:none; font-weight:600; font-size:0.95rem;
-    word-break:break-word; transition:color 0.15s;
-  }
-  .graph-card .info a:hover { color:#ddd6fe; }
-  .graph-meta { color:#64748b; font-size:0.75rem; margin-top:0.2rem; display:flex; gap:0.75rem; flex-wrap:wrap; }
-  .graph-meta span { white-space:nowrap; }
-
-  .graph-actions { display:flex; gap:0.5rem; align-items:center; flex-shrink:0; }
-  .btn {
-    border:1px solid rgba(255,255,255,0.10); border-radius:10px;
-    padding:0.45rem 0.8rem; font-size:0.8rem; font-weight:600;
-    cursor:pointer; transition:all 0.15s;
-    text-decoration:none; display:inline-flex; align-items:center; gap:0.3rem;
-    background:rgba(255,255,255,0.06); color:#94a3b8; white-space:nowrap;
-  }
-  .btn:hover { background:rgba(255,255,255,0.12); color:#e5e7eb; }
-  .btn.danger { color:#f87171; border-color:rgba(248,113,113,0.25); }
-  .btn.danger:hover { background:rgba(248,113,113,0.12); color:#fca5a5; border-color:rgba(248,113,113,0.4); }
-  .btn.open { background:rgba(124,58,237,0.15); border-color:rgba(124,58,237,0.3); color:#c4b5fd; }
-  .btn.open:hover { background:rgba(124,58,237,0.25); }
-
-  .empty { text-align:center; padding:4rem 0; color:#64748b; }
-  .empty .icon { font-size:3rem; margin-bottom:1rem; opacity:0.4; }
-  .empty p { font-size:0.95rem; line-height:1.6; }
-  .empty code { background:rgba(255,255,255,0.06); padding:0.15rem 0.5rem; border-radius:5px; font-size:0.85rem; color:#a78bfa; }
-
-  .toast {
-    position:fixed; bottom:2rem; left:50%; transform:translateX(-50%);
-    background:rgba(10,14,30,0.92); border:1px solid rgba(255,255,255,0.12);
-    border-radius:12px; padding:0.75rem 1.5rem; color:#e5e7eb; font-size:0.85rem;
-    z-index:999; backdrop-filter:blur(14px); opacity:0; pointer-events:none;
-    transition:opacity 0.25s; box-shadow:0 12px 40px rgba(0,0,0,0.3);
-  }
-  .toast.show { opacity:1; }
-  .toast.error { border-color:rgba(248,113,113,0.35); }
-
-  footer { text-align:center; color:#475569; font-size:0.7rem; margin-top:3rem; padding-bottom:2rem; }
-
-  @media (max-width:540px) {
-    .graph-card { flex-direction:column; align-items:flex-start; }
-    .graph-actions { align-self:flex-end; }
-  }
-</style>
+<link rel="stylesheet" href="/assets/giftgraph-home.css">
 </head>
 <body>
-<div class="bg-glow"></div>
-<div class="container">
-  <header>
-    <h1>🕸 GiftGraph Web</h1>
-    <p>Интерактивные графы социальных связей Telegram</p>
-  </header>
+<canvas id="ambient-canvas" aria-hidden="true"></canvas>
 
-  {% if graphs %}
-  <div class="stats">
-    <div class="stat"><div class="num">{{ total_nodes }}</div><div class="lbl">Узлов</div></div>
-    <div class="stat"><div class="num">{{ total_edges }}</div><div class="lbl">Рёбер</div></div>
-    <div class="stat"><div class="num">{{ graphs|length }}</div><div class="lbl">Графов</div></div>
-  </div>
-  {% endif %}
+<main class="atlas-shell">
+  <nav class="topbar" aria-label="Панель сайта">
+    <a class="brand" href="/">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 48 48" focusable="false">
+          <path d="M8 28C15 11 33 7 40 20" />
+          <path d="M9 29C18 39 34 39 41 22" />
+          <circle cx="13" cy="28" r="3.6" />
+          <circle cx="32" cy="13" r="3.6" />
+          <circle cx="39" cy="22" r="3.6" />
+        </svg>
+      </span>
+      <span class="brand-copy">
+        <small>giftgraph web</small>
+        <strong>Архив графов Telegram</strong>
+      </span>
+    </a>
+    <div class="top-actions">
+      <button class="control-btn primary icon-text" id="settings-toggle" type="button" aria-controls="theme-panel" aria-expanded="false">
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 7h16M7 12h10M10 17h4"/><circle cx="8" cy="7" r="2"/><circle cx="16" cy="12" r="2"/><circle cx="12" cy="17" r="2"/></svg>
+        <span>Настройки</span>
+      </button>
+    </div>
+  </nav>
 
-  <div class="graphs-list">
-  {% if graphs %}
-    {% for gid, info in graphs.items() %}
-    <div class="graph-card" id="card-{{ gid }}">
-      <div class="info">
-        <a href="/view/{{ gid }}">{{ info.get("label", gid) }}</a>
-        <div class="graph-meta">
-          <span>🟣 {{ info.get("nodes", "?") }} узлов</span>
-          <span>🔗 {{ info.get("edges", "?") }} рёбер</span>
-          <span>🕐 {{ info.get("created", "") }}</span>
-          {% if info.get("path_length") %}<span>📍 путь {{ info.path_length }} шаг.</span>{% endif %}
+  <aside class="metrics" aria-label="Сводка архива">
+    <div class="console-head">
+      <p class="section-kicker">сводка архива</p>
+      <h2>Статистика архива</h2>
+      <p class="console-copy">Текущие числа по архиву и плотности связей. Все действия со страниц остаются рабочими.</p>
+    </div>
+    <div class="metric">
+      <span class="metric-label">Графы</span>
+      <span class="metric-value" id="total-graphs">{{ graph_count }}</span>
+    </div>
+    <div class="metric">
+      <span class="metric-label">Узлы</span>
+      <span class="metric-value" id="total-nodes">{{ total_nodes }}</span>
+    </div>
+    <div class="metric">
+      <span class="metric-label">Связи</span>
+      <span class="metric-value" id="total-edges">{{ total_edges }}</span>
+    </div>
+    <div class="metric">
+      <span class="metric-label">Связей на узел</span>
+      <span class="metric-value">{{ edge_pulse }}</span>
+    </div>
+    <div class="console-note">
+      <strong>Совет</strong>
+      <p>По умолчанию включена тема Studio Violet; в настройках можно выбрать палитру и вручную настроить акценты.</p>
+    </div>
+  </aside>
+
+  <section class="archive" id="archive" aria-label="Сохраненные графы">
+    <div class="archive-head">
+      <div>
+        <p class="section-kicker">список графов</p>
+        <h2>Сохраненные графы</h2>
+      </div>
+      <span class="archive-count"><span id="graphs-count">{{ graph_count }}</span> записей</span>
+    </div>
+
+    <div class="archive-tools">
+      <label class="search-shell" for="graph-search">
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="11" cy="11" r="6"/><path d="M16 16l4 4"/></svg>
+        <input id="graph-search" type="search" autocomplete="off" placeholder="Найти граф">
+      </label>
+      <p class="archive-hint">Поиск фильтрует список сразу; кнопка удаления убирает граф из архива.</p>
+    </div>
+
+    <div class="graphs-list" id="graphs-list">
+    {% if rows %}
+      {% for row in rows %}
+      <article class="graph-card" id="card-{{ row.gid }}" data-search="{{ row.search }}" data-nodes="{{ row.nodes }}" data-edges="{{ row.edges }}" style="--flow:{{ row.flow }}%;">
+        <a class="graph-main" href="/view/{{ row.gid }}">
+          <span class="graph-number">{{ "%02d"|format(row.position) }}</span>
+          <span class="graph-copy">
+            <span class="graph-title">{{ row.label }}</span>
+            <span class="graph-meta">
+              <span>{{ row.nodes }} узлов</span>
+              <span>{{ row.edges }} ребер</span>
+              <span>{{ row.created }}</span>
+              {% if row.path_length > 0 %}<span>путь {{ row.path_length }} шаг.</span>{% endif %}
+            </span>
+          </span>
+          <svg class="mini-map" viewBox="0 0 150 72" aria-hidden="true" focusable="false">
+            <path d="M8 54C36 14 63 16 84 37S121 59 141 18" />
+            <path d="M12 30C42 45 64 58 98 47C119 40 131 29 144 37" />
+            <circle cx="15" cy="52" r="3.5" />
+            <circle cx="84" cy="37" r="4.5" />
+            <circle cx="141" cy="18" r="3.5" />
+          </svg>
+        </a>
+        <div class="graph-actions">
+          <a href="/view/{{ row.gid }}" class="text-btn open icon-text">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 17L17 7M9 7h8v8"/></svg>
+            <span>Открыть</span>
+          </a>
+          <button class="icon-btn danger" onclick="deleteGraph('{{ row.gid }}', this)" aria-label="Удалить граф" type="button">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 7h16M10 11v6M14 11v6M7 7l1 13h8l1-13M9 7l1-3h4l1 3"/></svg>
+          </button>
         </div>
+      </article>
+      {% endfor %}
+    {% else %}
+      <div class="empty">
+        <div class="empty-mark" aria-hidden="true"></div>
+        <p>Здесь появится первая сохраненная карта связей.</p>
       </div>
-      <div class="graph-actions">
-        <a href="/view/{{ gid }}" class="btn open">📂 Открыть</a>
-        <button class="btn danger" onclick="deleteGraph('{{ gid }}', this)">🗑</button>
-      </div>
+    {% endif %}
     </div>
-    {% endfor %}
-  {% else %}
-    <div class="empty">
-      <div class="icon">🕸</div>
-      <p>Пока нет сохранённых графов.<br>Используйте <code>/search</code> в Telegram-боте, чтобы создать первый.</p>
+    <div class="empty empty-filter" id="empty-filter" hidden>
+      <div class="empty-mark" aria-hidden="true"></div>
+      <p>Такой граф пока не найден.</p>
     </div>
-  {% endif %}
-  </div>
+  </section>
 
-  <footer>GiftGraph Web · графы хранятся постоянно</footer>
-</div>
+  <section class="signal-banner" aria-label="Статус архива">
+    <p class="section-kicker">быстрый обзор</p>
+    <h2>Архив уже собрал {{ graph_count }} графов с {{ total_nodes }} узлами и {{ total_edges }} связями.</h2>
+    <p>Карточки архива открываются в один клик, а внешний вид можно переключать без потери функций сайта.</p>
+    <div class="signal-tags">
+      <span>поиск по архиву</span>
+      <span>удаление из списка</span>
+      <span>настройка цветов</span>
+      <span>светлый и темный режим</span>
+    </div>
+  </section>
+</main>
+
+<aside class="theme-panel" id="theme-panel" aria-hidden="true">
+  <div class="panel-frame">
+    <div class="panel-head">
+      <div>
+        <p class="section-kicker">настройки</p>
+        <h2>Оформление сайта</h2>
+      </div>
+      <button class="icon-btn" id="settings-close" type="button" aria-label="Закрыть настройки">
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+
+    <div class="settings-grid">
+      <section class="settings-block">
+        <div class="settings-compact-head">
+          <div>
+            <p class="section-kicker">язык</p>
+            <h3>Язык интерфейса</h3>
+          </div>
+          <div class="mode-row mode-row-compact language-row" role="group" aria-label="Язык интерфейса">
+            <button type="button" class="mode-choice settings-chip" data-language-choice="ru">Русский</button>
+            <button type="button" class="mode-choice settings-chip" data-language-choice="en">English</button>
+          </div>
+        </div>
+        <div class="settings-divider" aria-hidden="true"></div>
+        <div class="settings-compact-head">
+          <div>
+            <p class="section-kicker">режим</p>
+            <h3>Режим темы</h3>
+            <p class="settings-note">Переключай сайт между светлой и темной версией.</p>
+          </div>
+          <div class="mode-row mode-row-compact" role="group" aria-label="Режим">
+            <button type="button" class="mode-choice settings-chip" data-mode-choice="light">Светлая</button>
+            <button type="button" class="mode-choice settings-chip" data-mode-choice="dark">Темная</button>
+          </div>
+        </div>
+        <div class="settings-divider" aria-hidden="true"></div>
+        <div class="settings-compact-head">
+          <div>
+            <p class="section-kicker">автоудаление</p>
+            <h3>Автоудаление по умолчанию</h3>
+            <p class="settings-note">Задай срок автоудаления для графов, которые открываются из архива впервые.</p>
+          </div>
+          <div class="auto-delete-stack">
+            <div class="auto-delete-row" data-default-autodelete-group>
+              <button type="button" class="mode-choice settings-chip" data-default-autodelete="0">Выкл</button>
+              <button type="button" class="mode-choice settings-chip" data-default-autodelete="60">1 час</button>
+              <button type="button" class="mode-choice settings-chip" data-default-autodelete="1440">24 ч</button>
+              <button type="button" class="mode-choice settings-chip" data-default-autodelete="10080">7 дн</button>
+            </div>
+            <div class="auto-delete-status" id="default-autodelete-status">Не запланировано</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="settings-block">
+        <p class="section-kicker">темы</p>
+        <h3>Цветовые наборы</h3>
+        <div class="palette-list" aria-label="Цветовые темы">
+          <button type="button" class="palette-card" data-palette-choice="ember"><span><strong>Studio Violet</strong><small>фиолетовый сигнал, молочная бумага, чернильные кнопки</small></span><i style="--a:#7a3cff;--b:#b08cff;--c:#eadcff"></i></button>
+          <button type="button" class="palette-card" data-palette-choice="reef"><span><strong>Signal Blue</strong><small>электрический синий, холодный воздух, светлый фон</small></span><i style="--a:#2f6bff;--b:#79a8ff;--c:#dbe7ff"></i></button>
+          <button type="button" class="palette-card" data-palette-choice="iris"><span><strong>Rose Index</strong><small>малиновый акцент, мягкая бумага, теплые подписи</small></span><i style="--a:#ca3c76;--b:#ff8bb7;--c:#ffd7e8"></i></button>
+          <button type="button" class="palette-card" data-palette-choice="graphite"><span><strong>Ink Contrast</strong><small>почти монохром, сдержанный акцент, высокий контраст</small></span><i style="--a:#22201c;--b:#7b7267;--c:#e3d8c8"></i></button>
+        </div>
+      </section>
+
+      <section class="settings-block settings-block-wide">
+        <div class="theme-detail" aria-label="Точная настройка темы">
+          <p class="section-kicker">точная настройка</p>
+          <h3>Ручная коррекция акцентов</h3>
+          <p class="settings-note">Если нужен свой оттенок, можно отдельно подкрутить основной сигнал, вторичный цвет и мягкий тон интерфейса.</p>
+          <div class="theme-color-grid">
+            <label class="theme-color">Акцент <input id="theme-color-accent" type="color" data-theme-color="accent"></label>
+            <label class="theme-color">Вторичный <input id="theme-color-accent-2" type="color" data-theme-color="accent2"></label>
+            <label class="theme-color">Мягкий <input id="theme-color-accent-3" type="color" data-theme-color="accent3"></label>
+          </div>
+          <button class="mode-choice theme-reset" id="theme-color-reset" type="button">Сбросить цвета</button>
+        </div>
+      </section>
+    </div>
+  </div>
+</aside>
 
 <div id="toast" class="toast"></div>
-
-<script>
-function showToast(msg, isError) {
-  var t = document.getElementById('toast');
-  t.textContent = msg;
-  t.className = 'toast show' + (isError ? ' error' : '');
-  clearTimeout(t._timer);
-  t._timer = setTimeout(function(){ t.className = 'toast'; }, 2500);
-}
-
-async function deleteGraph(gid, btn) {
-  if (!confirm('Удалить этот граф? Действие необратимо.')) return;
-  btn.disabled = true; btn.textContent = '...';
-  try {
-    var r = await fetch('/api/graphs/' + gid, { method: 'DELETE' });
-    if (r.ok) {
-      var card = document.getElementById('card-' + gid);
-      if (card) { card.style.opacity='0'; card.style.transform='scale(0.95)'; setTimeout(function(){ card.remove(); }, 300); }
-      showToast('Граф удалён');
-    } else {
-      var d = await r.json();
-      showToast(d.error || 'Ошибка удаления', true);
-      btn.disabled = false; btn.textContent = '🗑';
-    }
-  } catch(e) { showToast('Ошибка сети', true); btn.disabled = false; btn.textContent = '🗑'; }
-}
-</script>
+<script src="/assets/giftgraph-i18n.js"></script>
+<script src="/assets/giftgraph-home.js"></script>
 </body>
 </html>"""
+
+
+@app.route("/assets/<path:filename>")
+def assets(filename: str):
+    return send_from_directory(ASSETS_DIR, filename)
 
 
 @app.route("/")
@@ -346,12 +469,39 @@ def home():
     idx = _load_index()
     graphs = idx.get("graphs", {})
     sorted_graphs = dict(sorted(graphs.items(), key=lambda kv: kv[1].get("created_ts", 0), reverse=True))
-    total_nodes = sum(g.get("nodes", 0) for g in sorted_graphs.values())
-    total_edges = sum(g.get("edges", 0) for g in sorted_graphs.values())
-    return render_template_string(HOME_TEMPLATE, graphs=sorted_graphs, total_nodes=total_nodes, total_edges=total_edges)
+    rows = []
+    for position, (gid, info) in enumerate(sorted_graphs.items(), start=1):
+        nodes = int(info.get("nodes", 0) or 0)
+        edges = int(info.get("edges", 0) or 0)
+        created = str(info.get("created", ""))
+        label = str(info.get("label", gid))
+        search = f"{label} {gid} {created} {nodes} {edges}".lower()
+        flow = 12 if nodes <= 0 else min(100, max(12, round((edges / max(1, nodes)) * 18)))
+        rows.append(
+            {
+                "position": position,
+                "gid": gid,
+                "label": label,
+                "nodes": nodes,
+                "edges": edges,
+                "created": created,
+                "path_length": int(info.get("path_length", 0) or 0),
+                "search": search,
+                "flow": flow,
+            }
+        )
+    total_nodes = sum(row["nodes"] for row in rows)
+    total_edges = sum(row["edges"] for row in rows)
+    edge_pulse = round(total_edges / max(1, total_nodes), 1) if total_nodes else 0
+    return render_template_string(
+        HOME_TEMPLATE,
+        rows=rows,
+        graph_count=len(rows),
+        total_nodes=total_nodes,
+        total_edges=total_edges,
+        edge_pulse=edge_pulse,
+    )
 
-
-# ── Страница графа (тулбар вшит в HTML, без iframe) ──────────────────────
 
 @app.route("/view/<gid>")
 def view_graph(gid: str):
@@ -366,12 +516,9 @@ def view_graph(gid: str):
 
     with open(graph_file, "r", encoding="utf-8") as f:
         html = f.read()
-
     html = _inject_toolbar(html, gid, info)
     return html, 200, {"Content-Type": "text/html; charset=utf-8"}
 
-
-# ── Raw HTML (обратная совместимость для API бота) ────────────────────────
 
 @app.route("/graph/<gid>")
 def view_graph_raw(gid: str):
@@ -380,8 +527,6 @@ def view_graph_raw(gid: str):
         abort(404)
     return send_from_directory(GRAPHS_DIR, f"{gid}.html")
 
-
-# ── API ───────────────────────────────────────────────────────────────────
 
 @app.route("/api/graphs", methods=["POST"])
 def api_create_graph():
@@ -398,24 +543,21 @@ def api_create_graph():
     with open(graph_file, "w", encoding="utf-8") as f:
         f.write(html)
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(timezone(timedelta(hours=3)))
     raw_label = data.get("label", f"Граф {gid[:6]}")
-    label = _strip_html(str(raw_label))
-    nodes = int(data.get("nodes", 0))
-    edges = int(data.get("edges", 0))
-    path_length = int(data.get("path_length", 0))
-    node_analytics = data.get("node_analytics", {})
+    graph_info = {
+        "label": _strip_html(str(raw_label)),
+        "nodes": int(data.get("nodes", 0)),
+        "edges": int(data.get("edges", 0)),
+        "path_length": int(data.get("path_length", 0)),
+        "created": now.strftime("%Y-%m-%d %H:%M MSK"),
+        "created_ts": now.timestamp(),
+    }
+    if isinstance(data.get("node_analytics"), dict):
+        graph_info["node_analytics"] = data["node_analytics"]
 
     idx = _load_index()
-    idx.setdefault("graphs", {})[gid] = {
-        "label": label,
-        "nodes": nodes,
-        "edges": edges,
-        "path_length": path_length,
-        "created": now.strftime("%Y-%m-%d %H:%M UTC"),
-        "created_ts": now.timestamp(),
-        "node_analytics": node_analytics,
-    }
+    idx.setdefault("graphs", {})[gid] = graph_info
     _save_index(idx)
     return jsonify({"id": gid, "url": f"/view/{gid}", "raw_url": f"/graph/{gid}"}), 201
 
@@ -429,9 +571,6 @@ def api_list_graphs():
 
 @app.route("/api/graphs/<gid>", methods=["DELETE"])
 def api_delete_graph(gid: str):
-    if not _api_key_ok():
-        return jsonify({"error": "unauthorized"}), 401
-
     idx = _load_index()
     if gid not in idx.get("graphs", {}):
         return jsonify({"error": "not found"}), 404
@@ -451,258 +590,7 @@ def health():
     return jsonify({"status": "ok", "graphs": graph_count})
 
 
-# ── Admin panel and API ──────────────────────────────────────────────────
-
-@app.route("/api/admin/data")
-def api_admin_data():
-    """Aggregated analytics from all graphs: promo nodes, top nodes by degree."""
-    idx = _load_index()
-    graphs = idx.get("graphs", {})
-
-    promo_nodes: list = []
-    top_nodes: list = []
-    graph_links: dict = {}  # gid → view URL
-
-    for gid, info in graphs.items():
-        na = info.get("node_analytics", {})
-        label = info.get("label", "")
-        graph_links[gid] = f"/view/{gid}"
-
-        for pn in na.get("promo", []):
-            promo_nodes.append({
-                "id": pn.get("id", ""),
-                "label": pn.get("label", ""),
-                "graph_id": gid,
-                "graph_label": label,
-            })
-
-    # Deduplicate promo nodes (same node may appear in multiple graphs)
-    seen = {}
-    deduped_promo = []
-    for pn in promo_nodes:
-        key = pn["id"]
-        if key not in seen:
-            seen[key] = pn
-            deduped_promo.append(pn)
-        else:
-            # Append graph reference
-            seen[key]["graph_id"] = seen[key]["graph_id"] + "," + pn["graph_id"]
-            seen[key]["graph_label"] = seen[key]["graph_label"] + " / " + pn["graph_label"]
-
-    return jsonify({
-        "promo_nodes": deduped_promo,
-        "graph_links": graph_links,
-    })
-
-
-# ── Promo overrides (admin corrections) ────────────────────────────────
-PROMO_OVERRIDES_PATH = os.path.join(GRAPHS_DIR, "_promo_overrides.json")
-
-
-def _load_overrides() -> dict:
-    if os.path.exists(PROMO_OVERRIDES_PATH):
-        with open(PROMO_OVERRIDES_PATH, "r") as f:
-            return json.load(f)
-    return {}
-
-
-def _save_overrides(ov: dict) -> None:
-    with open(PROMO_OVERRIDES_PATH, "w") as f:
-        json.dump(ov, f, ensure_ascii=False, indent=2)
-
-
-@app.route("/api/admin/overrides", methods=["GET", "POST", "DELETE"])
-def api_admin_overrides():
-    """Get/set/delete promo overrides."""
-    if request.method == "GET":
-        return jsonify(_load_overrides())
-
-    if request.method == "DELETE":
-        data = request.get_json(silent=True) or {}
-        node_id = data.get("node_id", "").strip()
-        if not node_id:
-            return jsonify({"error": "missing node_id"}), 400
-        ov = _load_overrides()
-        ov.pop(node_id, None)
-        _save_overrides(ov)
-        return jsonify({"deleted": node_id})
-
-    # POST
-    data = request.get_json(silent=True) or {}
-    node_id = data.get("node_id", "").strip()
-    is_promo = bool(data.get("is_promo", True))
-    if not node_id:
-        return jsonify({"error": "missing node_id"}), 400
-
-    ov = _load_overrides()
-    ov[node_id] = {
-        "is_promo": is_promo,
-        "label": data.get("label", ""),
-        "updated": datetime.now(timezone.utc).isoformat(),
-    }
-    _save_overrides(ov)
-    return jsonify({"saved": node_id, "is_promo": is_promo})
-
-
-@app.route("/admin")
-def admin_panel():
-    """Admin panel for managing promo nodes and viewing analytics."""
-    return render_template_string(ADMIN_HTML)
-
-
-ADMIN_HTML = """<!DOCTYPE html>
-<html lang="ru">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>GiftGraph Admin</title>
-<style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body {
-    background: #0a0e1e; color: #e5e7eb; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    min-height: 100vh; padding: 2rem;
-  }
-  h1 { font-size: 1.6rem; margin-bottom: 0.25rem; }
-  .sub { color: #64748b; font-size: 0.85rem; margin-bottom: 2rem; }
-  .panels { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
-  @media (max-width: 800px) { .panels { grid-template-columns: 1fr; } }
-  .panel {
-    background: rgba(15,23,42,0.7); border: 1px solid rgba(255,255,255,0.06);
-    border-radius: 14px; padding: 1.25rem;
-  }
-  .panel h2 { font-size: 1rem; margin-bottom: 1rem; color: #94a3b8; }
-  .node-row {
-    display: flex; align-items: center; gap: 0.6rem;
-    padding: 0.5rem 0; border-bottom: 1px solid rgba(255,255,255,0.04);
-    font-size: 0.82rem;
-  }
-  .node-label { flex: 1; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .node-id { color: #64748b; font-size: 0.7rem; }
-  .promo-badge { background: #f59e0b22; color: #f59e0b; padding: 2px 8px; border-radius: 5px; font-size: 0.7rem; font-weight: 700; }
-  .not-promo-badge { background: #22c55e22; color: #22c55e; padding: 2px 8px; border-radius: 5px; font-size: 0.7rem; font-weight: 700; }
-  button {
-    padding: 4px 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.12);
-    cursor: pointer; font-size: 0.72rem; font-weight: 600;
-    background: rgba(255,255,255,0.05); color: #e5e7eb;
-    transition: background 0.15s, border-color 0.15s;
-  }
-  button:hover { background: rgba(255,255,255,0.12); }
-  button.danger { color: #ef4444; border-color: rgba(239,68,68,0.2); }
-  button.danger:hover { background: rgba(239,68,68,0.1); }
-  button.promo-btn { color: #f59e0b; border-color: rgba(245,158,11,0.2); }
-  button.promo-btn:hover { background: rgba(245,158,11,0.1); }
-  .empty { color: #475569; font-size: 0.82rem; padding: 1rem 0; }
-  .loading { color: #64748b; font-style: italic; }
-  a { color: #7c3aed; text-decoration: none; }
-  a:hover { text-decoration: underline; }
-</style>
-</head>
-<body>
-<h1>🎁 GiftGraph Admin</h1>
-<p class="sub">Рекламные аккаунты и управление промо-метками</p>
-
-<div class="panels">
-  <div class="panel">
-    <h2>🔶 Рекламные аккаунты <span id="promo-count"></span></h2>
-    <div id="promo-list" class="loading">Загрузка...</div>
-  </div>
-  <div class="panel">
-    <h2>⚙️ Оверрайды</h2>
-    <p style="font-size:0.75rem;color:#64748b;margin-bottom:0.75rem;">
-      Добавьте или снимите пометку «рекламный» вручную<br>
-      (<code>node_id</code> = username без @ или id_...)
-    </p>
-    <div style="display:flex;gap:0.4rem;margin-bottom:1rem;">
-      <input id="override-id" placeholder="username без @" style="flex:1;padding:6px 10px;border-radius:7px;border:1px solid rgba(255,255,255,0.1);background:rgba(15,23,42,0.8);color:#e5e7eb;font-size:0.8rem;">
-      <button onclick="setOverride(true)">✓ Промо</button>
-      <button onclick="setOverride(false)" class="promo-btn">✗ Не промо</button>
-    </div>
-    <div id="overrides-list" class="loading">Загрузка...</div>
-  </div>
-</div>
-
-<script>
-const API = '/api/admin';
-
-async function loadData() {
-  const [dataRes, ovRes] = await Promise.all([
-    fetch(API + '/data'),
-    fetch(API + '/overrides')
-  ]);
-  const data = await dataRes.json();
-  const overrides = await ovRes.json();
-  renderPromo(data, overrides);
-  renderOverrides(overrides, data);
-}
-
-function renderPromo(data, overrides) {
-  const list = document.getElementById('promo-list');
-  const count = document.getElementById('promo-count');
-  const nodes = data.promo_nodes || [];
-  count.textContent = '(' + nodes.length + ')';
-
-  if (!nodes.length) { list.innerHTML = '<div class="empty">Нет обнаруженных рекламных аккаунтов</div>'; return; }
-
-  list.innerHTML = nodes.map(p => {
-    const ov = overrides[p.id];
-    const isPromo = ov ? ov.is_promo : true;
-    const badge = isPromo
-      ? '<span class="promo-badge">реклама</span>'
-      : '<span class="not-promo-badge">снято</span>';
-    const graphIds = (p.graph_id || '').split(',');
-    const links = graphIds.map(gid => '<a href="/view/' + gid.trim() + '" target="_blank">граф</a>').join(' ');
-    return '<div class="node-row">'
-      + '<span class="node-label">' + esc(p.label) + '</span>'
-      + '<span class="node-id">' + esc(p.id) + '</span>'
-      + badge + ' ' + links
-      + '</div>';
-  }).join('');
-}
-
-function renderOverrides(overrides, data) {
-  const list = document.getElementById('overrides-list');
-  const entries = Object.entries(overrides);
-  if (!entries.length) { list.innerHTML = '<div class="empty">Нет ручных оверрайдов</div>'; return; }
-
-  list.innerHTML = entries.map(([id, ov]) =>
-    '<div class="node-row">'
-    + '<span class="node-label">' + esc(ov.label || id) + '</span>'
-    + '<span class="node-id">' + esc(id) + '</span>'
-    + (ov.is_promo ? '<span class="promo-badge">реклама</span>' : '<span class="not-promo-badge">снято</span>')
-    + '<button onclick="deleteOverride(\'' + esc(id) + '\')" class="danger">удалить</button>'
-    + '</div>'
-  ).join('');
-}
-
-function esc(s) { return (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-
-async function setOverride(isPromo) {
-  const id = document.getElementById('override-id').value.trim();
-  if (!id) return;
-  await fetch(API + '/overrides', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({ node_id: id, is_promo: isPromo })
-  });
-  loadData();
-}
-
-async function deleteOverride(id) {
-  await fetch(API + '/overrides', {
-    method: 'DELETE',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({ node_id: id })
-  });
-  loadData();
-}
-
-loadData();
-</script>
-</body>
-</html>"""
-
-
 if __name__ == "__main__":
     port = int(os.getenv("PORT", "5100"))
-    print(f"🔮 GiftGraph Web starting on http://0.0.0.0:{port}")
+    print(f"GiftGraph Web starting on http://0.0.0.0:{port}")
     app.run(host="0.0.0.0", port=port, debug=False)

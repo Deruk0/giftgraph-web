@@ -1,36 +1,76 @@
 {
   "graphs": {
-    "d9f1792a56e0": {
+    "253c07d07228": {
       "label": "Граф @Illiyuzi",
       "nodes": 500,
-      "edges": 1088,
+      "edges": 2209,
       "path_length": 0,
-      "created": "2026-05-30 13:56 UTC",
-      "created_ts": 1780149378.617119
+      "created": "2026-07-06 13:14 UTC",
+      "created_ts": 1783343663.131169
     },
-    "907a108e1153": {
-      "label": "Граф @Illiyuzi",
+    "13e78ff3857d": {
+      "label": "Граф @deruko_05",
       "nodes": 500,
-      "edges": 1145,
+      "edges": 2198,
       "path_length": 0,
-      "created": "2026-05-30 13:58 UTC",
-      "created_ts": 1780149497.948909
+      "created": "2026-07-07 19:49 UTC",
+      "created_ts": 1783453770.296907
     },
-    "62cb463595be": {
-      "label": "Граф @Illiyuzi",
-      "nodes": 6,
-      "edges": 31,
-      "path_length": 0,
-      "created": "2026-05-30 15:47 UTC",
-      "created_ts": 1780156028.177277
-    },
-    "224e6b650753": {
-      "label": "Граф @Illiyuzi",
+    "dae065dc9a86": {
+      "label": "Граф @deruko_05",
       "nodes": 500,
-      "edges": 1145,
+      "edges": 1483,
       "path_length": 0,
-      "created": "2026-05-30 15:48 UTC",
-      "created_ts": 1780156130.046274
+      "created": "2026-07-07 20:10 UTC",
+      "created_ts": 1783455032.525115
+    },
+    "ada1008a2b07": {
+      "label": "Граф @deruko_05",
+      "nodes": 500,
+      "edges": 2198,
+      "path_length": 0,
+      "created": "2026-07-07 20:16 UTC",
+      "created_ts": 1783455377.964862
+    },
+    "03403f197366": {
+      "label": "Граф @deruko_05",
+      "nodes": 500,
+      "edges": 2209,
+      "path_length": 0,
+      "created": "2026-07-07 22:03 UTC",
+      "created_ts": 1783461792.227092
+    },
+    "f4bc672a25a5": {
+      "label": "Граф @deruko_05",
+      "nodes": 7,
+      "edges": 35,
+      "path_length": 0,
+      "created": "2026-07-07 22:03 UTC",
+      "created_ts": 1783461806.161973
+    },
+    "4cd80baf4082": {
+      "label": "Граф @deruko_05",
+      "nodes": 500,
+      "edges": 2209,
+      "path_length": 0,
+      "created": "2026-07-07 22:13 UTC",
+      "created_ts": 1783462388.675609
+    },
+    "46a41fb2d87b": {
+      "label": "Граф @deruko_05",
+      "nodes": 500,
+      "edges": 2572,
+      "path_length": 0,
+      "created": "2026-07-13 23:10 MSK",
+      "created_ts": 1783973430.303886
+    },
+    "f51d7a45c73e": {
+      "label": "Граф @deruko_05",
+      "nodes": 500,
+      "edges": 2587,
+      "path_length": 0,
+      "created": "2026-07-13 23:33 MSK",
+      "created_ts": 1783974795.726675
     }
   }
 }
