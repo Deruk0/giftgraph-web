@@ -1,0 +1,10 @@
+__pycache__/
+.venv/
+.env
+.env.*
+*.log
+*.session
+*.db
+test_gateway.py
+test_*.py
+gateway_server.py

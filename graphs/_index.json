@@ -71,6 +71,39 @@
       "path_length": 0,
       "created": "2026-07-13 23:33 MSK",
       "created_ts": 1783974795.726675
+    },
+    "5ac8c248d5fc": {
+      "label": "Граф @deruko_05",
+      "nodes": 500,
+      "edges": 2367,
+      "path_length": 0,
+      "created": "2026-10-05 22:52 MSK",
+      "created_ts": 1791229951.75085
+    },
+    "9a580b7efd9a": {
+      "label": "Граф @deruko_05",
+      "nodes": 500,
+      "edges": 2471,
+      "path_length": 0,
+      "created": "2026-10-07 21:25 MSK",
+      "created_ts": 1791397540.780757
+    },
+    "4706ef464473": {
+      "label": "Граф @deruko_05",
+      "nodes": 10,
+      "edges": 43,
+      "path_length": 0,
+      "created": "2026-10-07 23:05 MSK",
+      "created_ts": 1791403501.245361
+    },
+    "e31054d0074e": {
+      "created": "2026-07-14 20:22 MSK",
+      "created_ts": 1784049726.51411,
+      "edges": 2,
+      "html_sha256": "7645595db44082524dbeb6cc34b3f0ec018e395b43f1eb9ac73b45c9eb7b422c",
+      "label": "Граф @deruko_05",
+      "nodes": 3,
+      "path_length": 0
     }
   }
 }

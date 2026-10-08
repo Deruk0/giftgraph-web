@@ -28,10 +28,6 @@ function gg_ensure_storage(): void
     if (!is_dir($dir)) {
         mkdir($dir, 0755, true);
     }
-    $idx = gg_index_path();
-    if (!is_file($idx)) {
-        file_put_contents($idx, json_encode(['graphs' => new stdClass()], JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT), LOCK_EX);
-    }
 }
 
 function gg_strip_html(string $value): string
@@ -67,9 +63,7 @@ function gg_load_index(): array
     }
     unset($info);
 
-    if ($dirty) {
-        gg_save_index($idx);
-    }
+    // Reading a page must not overwrite an index updated by another request.
     return $idx;
 }
 
@@ -80,11 +74,38 @@ function gg_save_index(array $idx): void
     if (empty($payload['graphs'])) {
         $payload['graphs'] = new stdClass();
     }
-    file_put_contents(
-        gg_index_path(),
-        json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT),
-        LOCK_EX
-    );
+    $json = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR);
+    $temp = tempnam(gg_graphs_dir(), '_index_');
+    if ($temp === false) {
+        throw new RuntimeException('Cannot create index temporary file');
+    }
+    try {
+        if (file_put_contents($temp, $json) === false || !rename($temp, gg_index_path())) {
+            throw new RuntimeException('Cannot save graph index');
+        }
+    } finally {
+        if (is_file($temp)) {
+            unlink($temp);
+        }
+    }
+}
+
+function gg_update_index(callable $update): void
+{
+    gg_ensure_storage();
+    $lock = fopen(gg_graphs_dir() . '/_index.lock', 'c');
+    if ($lock === false) {
+        throw new RuntimeException('Cannot open index lock');
+    }
+    try {
+        if (!flock($lock, LOCK_EX)) {
+            throw new RuntimeException('Cannot lock graph index');
+        }
+        gg_save_index($update(gg_load_index()));
+    } finally {
+        flock($lock, LOCK_UN);
+        fclose($lock);
+    }
 }
 
 function gg_json(array $payload, int $status = 200): void
@@ -195,8 +216,11 @@ function gg_inject_toolbar(string $html, string $gid, array $info): string
     $graphCss = gg_escape(gg_asset_url('/assets/giftgraph-graph.css'));
     $graphI18nJs = gg_escape(gg_asset_url('/assets/giftgraph-i18n.js'));
     $graphJs = gg_escape(gg_asset_url('/assets/giftgraph-graph.js'));
+    $miniappJs = gg_escape(gg_asset_url('/assets/giftgraph-miniapp.js'));
     $assets = <<<HTML
 <link rel="stylesheet" href="{$graphCss}">
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<script defer src="{$miniappJs}"></script>
 HTML;
 
     $toolbar = <<<HTML

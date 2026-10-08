@@ -19,7 +19,9 @@
   var graphBase = { nodes: null, edges: null };
   var worldGridBound = false;
   var zoomLimitBound = false;
-  var minZoomScale = 0.12;
+  var nodeDetailsBound = false;
+  var selectedDetailsNode = null;
+  var minZoomScale = 0.02;
   var autoDeleteTimer = 0;
   var graphPalettes = {
     ember: {
@@ -196,6 +198,216 @@
     return info.title || info.label || id;
   }
 
+  function nodeDetailsText(ru, en) {
+    return currentLanguage() === 'en' ? en : ru;
+  }
+
+  // Saved snapshots already contain this metadata, including merged mutual gifts.
+  function nodeDetailsData(id, meta) {
+    if (!meta || !meta.nodes || !Object.prototype.hasOwnProperty.call(meta.nodes, id)) return null;
+    var info = meta.nodes[id];
+    var peers = new Set();
+    var mutualPeers = new Set();
+    var gifts = 0;
+    var hasGiftCounts = true;
+    (meta.edges || []).forEach(function (edge) {
+      if (String(edge.from) !== String(id) && String(edge.to) !== String(id)) return;
+      var peer = String(edge.from) === String(id) ? String(edge.to) : String(edge.from);
+      if (peer !== String(id)) peers.add(peer);
+      if (edge.mutual && peer !== String(id)) mutualPeers.add(peer);
+      if (edge.count == null || !Number.isFinite(Number(edge.count))) hasGiftCounts = false;
+      else gifts += Math.max(0, Number(edge.count));
+    });
+    var numericId = /^id_?\d+$/.test(String(id));
+    var username = String(info.label || id).replace(/^@/, '');
+    if (info.anonymous || info.kind === 'anonymous' || numericId || !/^[a-z][a-z0-9_]{4,31}$/i.test(username)) username = '';
+    return {
+      id: String(id), label: info.label || String(id), info: info,
+      type: info.anonymous || info.kind === 'anonymous' ? 'anonymous' : info.is_bot || info.kind === 'bot' ? 'bot' : 'user',
+      connections: peers.size, gifts: hasGiftCounts ? gifts : null,
+      peers: Array.from(peers),
+      mutual: mutualPeers.size, username: username,
+      identity: numericId ? String(id).replace(/^id_?/, '') : String(id)
+    };
+  }
+
+  function closeNodeDetails() {
+    selectedDetailsNode = null;
+    var panel = document.getElementById('giftgraph-node-details');
+    if (panel) panel.hidden = true;
+    applyNodeFocus();
+  }
+
+  function applyNodeFocus() {
+    var net = getNetwork();
+    if (!net || !net.body || !net.body.data) return;
+    var data = selectedDetailsNode !== null ? nodeDetailsData(selectedDetailsNode, getGraphMeta()) : null;
+    var bright = data ? new Set([data.id].concat(data.peers)) : null;
+    net.body.data.nodes.update(net.body.data.nodes.get().map(function (node) {
+      return { id: node.id, opacity: !bright || bright.has(String(node.id)) ? 1 : 0.2 };
+    }));
+    net.body.data.edges.update(net.body.data.edges.get().map(function (edge) {
+      var connected = !data || String(edge.from) === data.id || String(edge.to) === data.id;
+      return { id: edge.id, color: Object.assign({}, typeof edge.color === 'object' ? edge.color : { color: edge.color }, { opacity: connected ? 0.86 : 0.12 }) };
+    }));
+  }
+
+  function focusNodeConnections(id) {
+    var net = getNetwork();
+    var data = nodeDetailsData(id, getGraphMeta());
+    if (!net || !data || typeof net.fit !== 'function') return;
+    if (typeof net.stopSimulation === 'function') net.stopSimulation();
+    var canvas = document.getElementById('mynetwork');
+    var toolbar = document.getElementById('giftgraph-toolbar');
+    var panel = document.getElementById('giftgraph-node-details');
+    if (canvas && typeof net.getBoundingBox === 'function' && typeof net.moveTo === 'function') {
+      var frame = canvas.getBoundingClientRect();
+      var top = Math.max(frame.top + 16, toolbar ? toolbar.getBoundingClientRect().bottom + 12 : frame.top + 16);
+      var bottom = Math.min(frame.bottom - 16, panel && !panel.hidden ? panel.getBoundingClientRect().top - 12 : frame.bottom - 16);
+      var boxes = [data.id].concat(data.peers).map(function (nodeId) { return net.getBoundingBox(nodeId); });
+      var left = Math.min.apply(null, boxes.map(function (box) { return box.left; }));
+      var right = Math.max.apply(null, boxes.map(function (box) { return box.right; }));
+      var upper = Math.min.apply(null, boxes.map(function (box) { return box.top; }));
+      var lower = Math.max.apply(null, boxes.map(function (box) { return box.bottom; }));
+      if (bottom > top && frame.width > 32 && [left, right, upper, lower].every(Number.isFinite)) {
+        net.moveTo({
+          position: { x: (left + right) / 2, y: (upper + lower) / 2 },
+          scale: Math.max(minZoomScale, Math.min(1, (frame.width - 32) / Math.max(1, right - left), (bottom - top) / Math.max(1, lower - upper))),
+          offset: { x: 0, y: (top + bottom) / 2 - (frame.top + frame.bottom) / 2 },
+          animation: { duration: 420, easingFunction: 'easeInOutQuad' }
+        });
+        return;
+      }
+    }
+    net.fit({ nodes: [data.id].concat(data.peers), animation: { duration: 420, easingFunction: 'easeInOutQuad' } });
+  }
+
+  function copyNodeIdentity(data) {
+    var value = data.username ? '@' + data.username : data.identity;
+    if (!navigator.clipboard || !navigator.clipboard.writeText) {
+      window.giftgraphNotify(nodeDetailsText('Копирование недоступно в этом браузере', 'Clipboard is unavailable in this browser'), true);
+      return;
+    }
+    navigator.clipboard.writeText(value).then(function () {
+      window.giftgraphNotify(nodeDetailsText('Скопировано: ', 'Copied: ') + value);
+    }).catch(function () {
+      window.giftgraphNotify(nodeDetailsText('Не удалось скопировать', 'Could not copy'), true);
+    });
+  }
+
+  function showNodeDetails(id) {
+    var data = nodeDetailsData(id, getGraphMeta());
+    if (!data) { closeNodeDetails(); return; }
+    selectedDetailsNode = id;
+    var panel = document.getElementById('giftgraph-node-details');
+    if (!panel) {
+      panel = document.createElement('section');
+      panel.id = 'giftgraph-node-details';
+      panel.setAttribute('aria-labelledby', 'gg-node-name');
+      document.body.appendChild(panel);
+    }
+    panel.replaceChildren();
+    function element(tag, className, text, parent) {
+      var el = document.createElement(tag);
+      el.className = className;
+      if (text != null) el.textContent = String(text);
+      if (parent) parent.appendChild(el);
+      return el;
+    }
+    var head = element('div', 'gg-node-head', null, panel);
+    var heading = element('div', 'gg-node-heading', null, head);
+    var type = data.type === 'bot' ? nodeDetailsText('Бот', 'Bot') : data.type === 'anonymous' ? nodeDetailsText('Анонимный отправитель', 'Anonymous sender') : nodeDetailsText('Пользователь', 'User');
+    element('span', 'gg-node-type', type, heading);
+    element('h2', 'gg-node-name', data.label, heading).id = 'gg-node-name';
+    var close = element('button', 'gg-node-close', '×', head);
+    close.type = 'button';
+    close.setAttribute('aria-label', nodeDetailsText('Закрыть карточку участника', 'Close participant details'));
+    close.addEventListener('click', closeNodeDetails);
+    var body = element('div', 'gg-node-body', null, panel);
+    var stats = element('dl', 'gg-node-stats', null, body);
+    [
+      [nodeDetailsText('Связей', 'Connections'), data.connections],
+      [nodeDetailsText('Подарков', 'Gifts'), data.gifts == null ? '—' : data.gifts],
+      [nodeDetailsText('Взаимных', 'Mutual'), data.mutual]
+    ].forEach(function (stat) {
+      var cell = element('div', 'gg-node-stat', null, stats);
+      element('dt', '', stat[0], cell);
+      element('dd', '', stat[1], cell);
+    });
+    var more = element('div', 'gg-node-more' + (data.username ? ' has-profile' : ''), null, body);
+    var extra = element('details', 'gg-node-extra', null, more);
+    element('summary', '', nodeDetailsText('Подробнее', 'More details'), extra);
+    var content = element('div', 'gg-node-extra-content', null, extra);
+    element('p', 'gg-node-identity', (data.username ? 'Username: @' + data.username : 'ID: ' + data.identity), content);
+    if (data.info.kind === 'start' || data.info.kind === 'path') {
+      element('span', 'gg-node-role', data.info.kind === 'start' ? nodeDetailsText('Начало поиска', 'Search start') : nodeDetailsText('На найденном пути', 'On the found path'), content);
+    }
+    if (Number.isFinite(data.info.level)) {
+      element('p', 'gg-node-level', nodeDetailsText('Уровень от начала поиска: ', 'Level from search start: ') + data.info.level, content);
+    }
+    var actions = element('div', 'gg-node-actions', null, more);
+    var focus = element('button', 'gg-node-action', '◎', actions);
+    focus.type = 'button';
+    focus.setAttribute('aria-label', nodeDetailsText('Показать связи', 'Show connections'));
+    focus.title = nodeDetailsText('Показать связи', 'Show connections');
+    focus.addEventListener('click', function () { extra.open = false; focusNodeConnections(id); });
+    var copy = element('button', 'gg-node-action', '⧉', actions);
+    copy.type = 'button';
+    copy.setAttribute('aria-label', data.username ? nodeDetailsText('Копировать ник', 'Copy username') : nodeDetailsText('Копировать ID', 'Copy ID'));
+    copy.title = data.username ? nodeDetailsText('Копировать ник', 'Copy username') : nodeDetailsText('Копировать ID', 'Copy ID');
+    copy.addEventListener('click', function () { copyNodeIdentity(data); });
+    if (data.username) {
+      var profile = element('a', 'gg-node-action gg-node-profile', 'TG', actions);
+      profile.setAttribute('aria-label', nodeDetailsText('Открыть Telegram', 'Open Telegram'));
+      profile.title = nodeDetailsText('Открыть Telegram', 'Open Telegram');
+      profile.href = 'https://t.me/' + data.username;
+      profile.target = '_blank';
+      profile.rel = 'noopener noreferrer';
+    }
+    element('p', 'gg-node-note', nodeDetailsText('Данные только из этого графа. Взаимные подарки учтены суммарно.', 'Data from this graph only. Mutual gifts are counted together.'), content);
+    if (data.peers.length) {
+      element('h3', 'gg-node-neighbors-title', nodeDetailsText('Связанные участники', 'Connected participants'), content);
+      var list = element('div', 'gg-node-neighbors', null, content);
+      var meta = getGraphMeta();
+      var peers = data.peers.slice().sort(function (a, b) {
+        return String(meta.nodes[a] && meta.nodes[a].label || a).localeCompare(String(meta.nodes[b] && meta.nodes[b].label || b));
+      });
+      var shown = 0;
+      var next = element('button', 'gg-node-more-peers', nodeDetailsText('Показать ещё', 'Show more'), content);
+      next.type = 'button';
+      function appendPeers() {
+        var end = Math.min(shown + 20, peers.length);
+        for (; shown < end; shown++) {
+          (function (peer) {
+            var button = element('button', 'gg-node-neighbor', meta.nodes[peer] && meta.nodes[peer].label || peer, list);
+            button.type = 'button';
+            button.addEventListener('click', function () {
+              var net = getNetwork();
+              showNodeDetails(peer);
+              if (net && typeof net.selectNodes === 'function') net.selectNodes([peer], false);
+              if (net && typeof net.focus === 'function') net.focus(peer, { scale: Math.max(0.3, Math.min(net.getScale(), 1)), locked: false, animation: { duration: 350 } });
+            });
+          }(peers[shown]));
+        }
+        next.hidden = shown >= peers.length;
+      }
+      next.addEventListener('click', appendPeers);
+      appendPeers();
+    }
+    panel.hidden = false;
+    applyNodeFocus();
+  }
+
+  function bindNodeDetails() {
+    var net = getNetwork();
+    if (!net || nodeDetailsBound) return;
+    nodeDetailsBound = true;
+    net.on('click', function (params) {
+      if (params.nodes && params.nodes.length) showNodeDetails(params.nodes[0]);
+      else closeNodeDetails();
+    });
+  }
+
   function graphEdgeTitle(edge) {
     if (i18n && i18n.formatGiftCount) return i18n.formatGiftCount(edge.count || 0, !!edge.mutual);
     return edge.title || '';
@@ -220,8 +432,9 @@
     var meta = getGraphMeta();
     var subtitle = document.getElementById('giftgraph-subtitle');
     if (subtitle && meta && meta.summary && i18n && i18n.formatNumberUnit) {
-      subtitle.innerHTML = i18n.formatNumberUnit('node', meta.summary.nodes || 0) + ' · ' +
+      var subtitleText = i18n.formatNumberUnit('node', meta.summary.nodes || 0) + ' · ' +
         i18n.formatNumberUnit('edge', meta.summary.edges || 0);
+      if (subtitle.innerHTML !== subtitleText) subtitle.innerHTML = subtitleText;
     }
     document.querySelectorAll('.giftgraph-pill').forEach(function (pill) {
       var dot = pill.querySelector('.giftgraph-dot');
@@ -229,14 +442,19 @@
       var kind = dot.getAttribute('data-kind');
       var label = kind === 'start' ? 'Старт' : kind === 'regular' ? 'Обычный узел' : kind === 'anonymous' ? 'Анонимный' : kind === 'bot' ? 'Бот' : '';
       var text = i18n && i18n.translateString ? i18n.translateString(label, currentLanguage()) : label;
-      Array.prototype.slice.call(pill.childNodes).forEach(function (node) {
-        if (node.nodeType === Node.TEXT_NODE) node.nodeValue = '';
+      var textNodes = Array.prototype.slice.call(pill.childNodes).filter(function (node) {
+        return node.nodeType === Node.TEXT_NODE;
       });
-      pill.appendChild(document.createTextNode(text));
+      // This also runs from MutationObserver: identical labels must not mutate DOM.
+      if (textNodes.map(function (node) { return node.nodeValue; }).join('').trim() !== text) {
+        textNodes.forEach(function (node) { pill.removeChild(node); });
+        pill.appendChild(document.createTextNode(text));
+      }
     });
     var hint = document.getElementById('giftgraph-hint');
     if (hint && i18n && i18n.translateString) {
-      hint.textContent = i18n.translateString('Колесо: масштаб · drag: панорама и узлы', currentLanguage());
+      var hintText = i18n.translateString('Колесо: масштаб · drag: панорама и узлы', currentLanguage());
+      if (hint.textContent !== hintText) hint.textContent = hintText;
     }
   }
 
@@ -275,11 +493,9 @@
   }
 
   function nodeFontSize(info, fallback) {
-    if (fallback) return fallback;
-    if (!info) return 13;
-    if (info.kind === 'start') return 17;
-    if (info.kind === 'anonymous' || info.kind === 'bot' || info.kind === 'promo') return 10;
-    return 13;
+    var size = Number(fallback) || (!info ? 13 : info.kind === 'start' ? 17 :
+      ['anonymous', 'bot', 'promo'].indexOf(info.kind) !== -1 ? 10 : 13);
+    return Math.round(size * 1.45);
   }
 
   function nodeShape(info) {
@@ -394,6 +610,7 @@
         pill.style.setProperty('box-shadow', 'inset 0 0 0 1px ' + rgba(legendColor(kind, colors), 0.16), 'important');
       }
     });
+    applyNodeFocus();
   }
 
   function controlNumber(id, fallback) {
@@ -497,7 +714,7 @@
     try {
       localStorage.setItem('giftgraph-node-scale', String(controlNumber('gg-node-scale', 1)));
       localStorage.setItem('giftgraph-edge-scale', String(controlNumber('gg-edge-scale', 1)));
-      localStorage.setItem('giftgraph-spring-length', String(controlNumber('gg-spring-length', 350)));
+      localStorage.setItem('giftgraph-spring-length', String(controlNumber('gg-spring-length', 300)));
       localStorage.setItem('giftgraph-grid-enabled', document.getElementById('gg-grid-toggle') && document.getElementById('gg-grid-toggle').checked ? '1' : '0');
       localStorage.setItem('giftgraph-grid-strength', String(controlNumber('gg-grid-strength', 1)));
     } catch (e) {}
@@ -507,7 +724,7 @@
     var net = getNetwork();
     var nodeScale = controlNumber('gg-node-scale', 1);
     var edgeScale = controlNumber('gg-edge-scale', 1);
-    var spring = Math.round(controlNumber('gg-spring-length', 350));
+    var spring = Math.round(controlNumber('gg-spring-length', 300));
     var gridStrength = controlNumber('gg-grid-strength', 1);
 
     setControlLabel('gg-node-scale-value', nodeScale.toFixed(2));
@@ -525,7 +742,7 @@
       var info = meta && meta.nodes ? meta.nodes[id] : null;
       var font = Object.assign({}, base.font || {}, {
         color: colors.font,
-        size: Math.round(clamp(nodeFontSize(info, base.fontSize) * clamp(nodeScale, 0.7, 1.55), 8, 28))
+        size: Math.round(clamp(nodeFontSize(info, base.fontSize) * clamp(nodeScale, 0.7, 1.55), 12, 36))
       });
       return {
         id: id,
@@ -567,6 +784,15 @@
   }
 
   function loadGraphControlSettings() {
+    // Upgrade the previous default once; retain custom spacing and future edits.
+    try {
+      if (!localStorage.getItem('giftgraph-layout-v2')) {
+        if (localStorage.getItem('giftgraph-spring-length') === '350') {
+          localStorage.setItem('giftgraph-spring-length', '300');
+        }
+        localStorage.setItem('giftgraph-layout-v2', '1');
+      }
+    } catch (e) {}
     readSavedControl('gg-node-scale', 'giftgraph-node-scale');
     readSavedControl('gg-edge-scale', 'giftgraph-edge-scale');
     readSavedControl('gg-spring-length', 'giftgraph-spring-length');
@@ -649,6 +875,7 @@
       if (toggle && !toggle.checked) return;
 
       var scale = net.getScale ? net.getScale() : 1;
+      if (!Number.isFinite(scale) || scale <= 0) return;
       var strength = controlNumber('gg-grid-strength', 1);
       if (strength <= 0.01) return;
 
@@ -659,7 +886,8 @@
       var right = Math.max(topLeft.x, bottomRight.x);
       var top = Math.min(topLeft.y, bottomRight.y);
       var bottom = Math.max(topLeft.y, bottomRight.y);
-      var major = 320;
+      // Keep the grid sparse when viewing a large graph from far away.
+      var major = 320 * Math.max(1, Math.pow(2, Math.ceil(Math.log2(0.08 / scale))));
       var minor = major / 2;
       var minorAlpha = clamp((scale - 0.72) / 0.82, 0, 1);
 
@@ -753,7 +981,8 @@
     function clearRecord() {
       if (autoDeleteTimer) clearTimeout(autoDeleteTimer);
       autoDeleteTimer = 0;
-      try { localStorage.removeItem(key); } catch (e) {}
+      // Keep an explicit opt-out so the archive default is not reapplied on reload.
+      try { localStorage.setItem(key, JSON.stringify({ minutes: 0, deadline: 0 })); } catch (e) {}
       setActive(0);
       status.textContent = tr('autoNotPlanned', 'Не запланировано');
     }
@@ -788,7 +1017,7 @@
         return;
       }
       autoDeleteTimer = setTimeout(function () {
-        schedule(loadRecord());
+        schedule(record);
       }, Math.min(remaining, 60000));
     }
 
@@ -967,6 +1196,7 @@
       captureGraphBase();
       bindWorldGrid();
       bindZoomLimit();
+      bindNodeDetails();
       applyNetworkTheme();
       applyGraphControls(true);
       try {
@@ -1008,10 +1238,11 @@
   });
 
   document.addEventListener('keydown', function (event) {
-    if (event.key === 'Escape') togglePanel(false);
+    if (event.key === 'Escape') { togglePanel(false); closeNodeDetails(); }
   });
 
   document.addEventListener('giftgraph:languagechange', function () {
+    if (selectedDetailsNode !== null) showNodeDetails(selectedDetailsNode);
     syncLanguage();
     updateControls();
     applyNetworkTheme();

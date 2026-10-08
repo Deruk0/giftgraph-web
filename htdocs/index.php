@@ -16,6 +16,8 @@ $edgePulse = $totalNodes > 0 ? round($totalEdges / max(1, $totalNodes), 1) : 0;
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>GiftGraph Web</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<script defer src="<?= gg_escape(gg_asset_url('/assets/giftgraph-miniapp.js')) ?>"></script>
 <link rel="stylesheet" href="<?= gg_escape(gg_asset_url('/assets/giftgraph-home.css')) ?>">
 </head>
 <body>

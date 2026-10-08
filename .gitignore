@@ -1,0 +1,8 @@
+.tools/
+.venv/
+__pycache__/
+tunnel.json
+tunnel.out.log
+tunnel.err.log
+
+.vercel

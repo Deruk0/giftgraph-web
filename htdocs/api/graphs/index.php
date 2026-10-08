@@ -20,7 +20,10 @@ if ($method === 'POST') {
         gg_json(['error' => 'invalid json'], 400);
     }
 
-    $html = trim((string)($data['html'] ?? ''));
+    if (!is_string($data['html'] ?? '')) {
+        gg_json(['error' => 'html must be a string'], 400);
+    }
+    $html = trim($data['html'] ?? '');
     if ($html === '') {
         gg_json(['error' => 'missing html'], 400);
     }
@@ -36,7 +39,6 @@ if ($method === 'POST') {
     }
 
     $now = new DateTimeImmutable('now', new DateTimeZone('Europe/Moscow'));
-    $idx = gg_load_index();
     $graphInfo = [
         'label' => gg_strip_html((string)($data['label'] ?? ('Граф ' . substr($newGid, 0, 6)))),
         'nodes' => (int)($data['nodes'] ?? 0),
@@ -48,8 +50,10 @@ if ($method === 'POST') {
     if (isset($data['node_analytics']) && is_array($data['node_analytics'])) {
         $graphInfo['node_analytics'] = $data['node_analytics'];
     }
-    $idx['graphs'][$newGid] = $graphInfo;
-    gg_save_index($idx);
+    gg_update_index(static function (array $idx) use ($newGid, $graphInfo): array {
+        $idx['graphs'][$newGid] = $graphInfo;
+        return $idx;
+    });
 
     gg_json([
         'id' => $newGid,
@@ -69,17 +73,17 @@ if ($method === 'DELETE') {
         gg_json(['error' => 'missing graph id'], 400);
     }
 
-    $idx = gg_load_index();
-    if (!isset($idx['graphs'][$gid])) {
-        gg_json(['error' => 'not found'], 404);
-    }
-
-    $file = gg_graph_file($gid);
-    if (is_file($file)) {
-        @unlink($file);
-    }
-    unset($idx['graphs'][$gid]);
-    gg_save_index($idx);
+    gg_update_index(static function (array $idx) use ($gid): array {
+        if (!isset($idx['graphs'][$gid])) {
+            gg_json(['error' => 'not found'], 404);
+        }
+        $file = gg_graph_file($gid);
+        if (is_file($file) && !unlink($file)) {
+            gg_json(['error' => 'cannot delete graph'], 500);
+        }
+        unset($idx['graphs'][$gid]);
+        return $idx;
+    });
 
     gg_json(['deleted' => $gid]);
 }

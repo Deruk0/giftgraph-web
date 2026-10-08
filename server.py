@@ -3,9 +3,14 @@ GiftGraph Web — сервис для постоянного хостинга и
 """
 
 import json
+import hashlib
+import hmac
 import os
 import re
+import tempfile
+import threading
 import uuid
+from functools import wraps
 from datetime import datetime, timedelta, timezone
 from html import escape
 
@@ -18,8 +23,15 @@ GRAPHS_DIR = os.path.join(BASE_DIR, "graphs")
 INDEX_PATH = os.path.join(GRAPHS_DIR, "_index.json")
 ASSETS_DIR = os.path.join(BASE_DIR, "htdocs", "assets")
 API_SECRET = os.getenv("GIFTGRAPH_SECRET", "").strip()
+INDEX_LOCK = threading.RLock()
+CLOUD_STORAGE = os.getenv("GIFTGRAPH_STORAGE") == "blob"
+if CLOUD_STORAGE:
+    from graph_storage import BlobGraphStore
+    GRAPH_STORE = BlobGraphStore()
+    app.config["MAX_CONTENT_LENGTH"] = 4 * 1024 * 1024
 
-os.makedirs(GRAPHS_DIR, exist_ok=True)
+if not CLOUD_STORAGE:
+    os.makedirs(GRAPHS_DIR, exist_ok=True)
 
 
 def _strip_html(s: str) -> str:
@@ -34,7 +46,18 @@ def _strip_html(s: str) -> str:
     return s.strip()
 
 
+def _locked_index(function):
+    @wraps(function)
+    def locked(*args, **kwargs):
+        with INDEX_LOCK:
+            return function(*args, **kwargs)
+    return locked
+
+
+@_locked_index
 def _load_index() -> dict:
+    if CLOUD_STORAGE:
+        return GRAPH_STORE.index()
     if os.path.exists(INDEX_PATH):
         try:
             with open(INDEX_PATH, "r", encoding="utf-8") as f:
@@ -56,20 +79,42 @@ def _load_index() -> dict:
     return idx
 
 
+@_locked_index
 def _save_index(idx: dict) -> None:
-    with open(INDEX_PATH, "w", encoding="utf-8") as f:
-        json.dump(idx, f, ensure_ascii=False, indent=2)
+    temp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=GRAPHS_DIR, prefix="_index_", suffix=".tmp", delete=False) as f:
+            temp_path = f.name
+            json.dump(idx, f, ensure_ascii=False, indent=2)
+        os.replace(temp_path, INDEX_PATH)
+    finally:
+        if temp_path and os.path.exists(temp_path):
+            os.unlink(temp_path)
 
 
 def _api_key_ok() -> bool:
     if not API_SECRET:
-        return True
+        return not CLOUD_STORAGE
     auth = request.headers.get("Authorization", "")
     plain = request.headers.get("X-GiftGraph-Secret", "")
     return auth == f"Bearer {API_SECRET}" or plain == API_SECRET
 
 
-TOOLBAR_ASSETS = '<link rel="stylesheet" href="/assets/giftgraph-graph.css">'
+def _delete_token(gid: str) -> str:
+    if not API_SECRET:
+        return ""
+    return hmac.new(API_SECRET.encode(), f"delete:{gid}".encode(), hashlib.sha256).hexdigest()
+
+
+def _delete_token_ok(gid: str) -> bool:
+    token = request.headers.get("X-GiftGraph-Delete-Token", "")
+    return bool(token) and hmac.compare_digest(_delete_token(gid), token)
+
+
+MINIAPP_ASSETS = '''<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<script defer src="/assets/giftgraph-miniapp.js"></script>'''
+MOBILE_VIEWPORT = '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">'
+TOOLBAR_ASSETS = MOBILE_VIEWPORT + '<link rel="stylesheet" href="/assets/giftgraph-graph.css">' + MINIAPP_ASSETS
 
 TOOLBAR_HTML = """
 <canvas id="giftgraph-ambient-canvas" aria-hidden="true"></canvas>
@@ -113,7 +158,7 @@ TOOLBAR_HTML = """
       <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 9h10v10H9z"/><path d="M5 15V5h10"/></svg>
       <span class="tb-btn-label">Копировать</span>
     </button>
-    <button class="tb-btn danger tb-icon-text" type="button" data-gid="__GID_ATTR__" onclick="if (window.deleteGraphFromToolbar) window.deleteGraphFromToolbar(this)">
+    <button class="tb-btn danger tb-icon-text" type="button" data-gid="__GID_ATTR__" data-delete-token="__DELETE_TOKEN__" onclick="if (window.deleteGraphFromToolbar) window.deleteGraphFromToolbar(this)">
       <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 7h16M10 11v6M14 11v6M7 7l1 13h8l1-13M9 7l1-3h4l1 3"/></svg>
       <span>Удалить</span>
     </button>
@@ -159,7 +204,7 @@ TOOLBAR_HTML = """
       <div class="tb-section-title">Граф</div>
       <label class="tb-range">Узлы <span id="gg-node-scale-value">1.0</span><input id="gg-node-scale" type="range" min="0.65" max="1.8" step="0.05" value="1"></label>
       <label class="tb-range">Связи <span id="gg-edge-scale-value">1.0</span><input id="gg-edge-scale" type="range" min="0.55" max="2.2" step="0.05" value="1"></label>
-      <label class="tb-range">Длина связей <span id="gg-spring-value">350</span><input id="gg-spring-length" type="range" min="120" max="680" step="10" value="350"></label>
+      <label class="tb-range">Длина связей <span id="gg-spring-value">300</span><input id="gg-spring-length" type="range" min="120" max="680" step="10" value="300"></label>
       <label class="tb-switch"><input id="gg-grid-toggle" type="checkbox" checked><span>Сетка</span></label>
       <label class="tb-range">Яркость сетки <span id="gg-grid-value">1.0</span><input id="gg-grid-strength" type="range" min="0" max="1.6" step="0.05" value="1"></label>
       <div class="tb-action-row">
@@ -185,6 +230,9 @@ TOOLBAR_HTML = """
 
 
 def _inject_toolbar(html: str, gid: str, info: dict) -> str:
+    # Older snapshots have no viewport, or one sized for desktop. Normalize it
+    # when serving the page so archived graphs also work on phones.
+    html = re.sub(r'<meta\b(?=[^>]*\bname\s*=\s*[\"\']viewport[\"\'])[^>]*>', '', html, flags=re.IGNORECASE)
     label = escape(str(info.get("label", gid)))
     nodes = escape(str(info.get("nodes", "?")))
     edges = escape(str(info.get("edges", "?")))
@@ -204,6 +252,7 @@ def _inject_toolbar(html: str, gid: str, info: dict) -> str:
         .replace("__EDGES__", escape(str(info.get("edges", "0")), quote=True))
         .replace("__PATH_LENGTH__", escape(str(path_length), quote=True))
         .replace("__GID_ATTR__", escape(gid, quote=True))
+        .replace("__DELETE_TOKEN__", _delete_token(gid))
     )
 
     if re.search(r"</head>", html, re.IGNORECASE):
@@ -232,8 +281,10 @@ HOME_TEMPLATE = r"""<!DOCTYPE html>
 <html lang="ru" data-language="ru" data-palette="ember" data-mode="light">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>GiftGraph Web</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<script defer src="/assets/giftgraph-miniapp.js"></script>
 <link rel="stylesheet" href="/assets/giftgraph-home.css">
 </head>
 <body>
@@ -337,7 +388,7 @@ HOME_TEMPLATE = r"""<!DOCTYPE html>
             <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 17L17 7M9 7h8v8"/></svg>
             <span>Открыть</span>
           </a>
-          <button class="icon-btn danger" onclick="deleteGraph('{{ row.gid }}', this)" aria-label="Удалить граф" type="button">
+          <button class="icon-btn danger" onclick="deleteGraph('{{ row.gid }}', this)" data-delete-token="{{ row.delete_token }}" aria-label="Удалить граф" type="button">
             <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 7h16M10 11v6M14 11v6M7 7l1 13h8l1-13M9 7l1-3h4l1 3"/></svg>
           </button>
         </div>
@@ -481,6 +532,7 @@ def home():
             {
                 "position": position,
                 "gid": gid,
+                "delete_token": _delete_token(gid),
                 "label": label,
                 "nodes": nodes,
                 "edges": edges,
@@ -505,23 +557,35 @@ def home():
 
 @app.route("/view/<gid>")
 def view_graph(gid: str):
-    idx = _load_index()
-    info = idx.get("graphs", {}).get(gid)
+    if not re.fullmatch(r"[a-f0-9]{12}", gid):
+        abort(404)
+    info = GRAPH_STORE.info(gid) if CLOUD_STORAGE else _load_index().get("graphs", {}).get(gid)
     if info is None:
         abort(404)
 
-    graph_file = os.path.join(GRAPHS_DIR, f"{gid}.html")
-    if not os.path.exists(graph_file):
-        abort(404)
-
-    with open(graph_file, "r", encoding="utf-8") as f:
-        html = f.read()
+    if CLOUD_STORAGE:
+        html = GRAPH_STORE.html(gid)
+        if html is None:
+            abort(404)
+    else:
+        graph_file = os.path.join(GRAPHS_DIR, f"{gid}.html")
+        if not os.path.exists(graph_file):
+            abort(404)
+        with open(graph_file, "r", encoding="utf-8") as f:
+            html = f.read()
     html = _inject_toolbar(html, gid, info)
     return html, 200, {"Content-Type": "text/html; charset=utf-8"}
 
 
 @app.route("/graph/<gid>")
 def view_graph_raw(gid: str):
+    if CLOUD_STORAGE:
+        if not re.fullmatch(r"[a-f0-9]{12}", gid) or GRAPH_STORE.info(gid) is None:
+            abort(404)
+        html = GRAPH_STORE.html(gid)
+        if html is None:
+            abort(404)
+        return html, 200, {"Content-Type": "text/html; charset=utf-8"}
     graph_file = os.path.join(GRAPHS_DIR, f"{gid}.html")
     if not os.path.exists(graph_file):
         abort(404)
@@ -529,36 +593,48 @@ def view_graph_raw(gid: str):
 
 
 @app.route("/api/graphs", methods=["POST"])
+@_locked_index
 def api_create_graph():
     if not _api_key_ok():
         return jsonify({"error": "unauthorized"}), 401
 
-    data = request.get_json(silent=True) or {}
-    html = (data.get("html") or "").strip()
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"error": "invalid json object"}), 400
+    html = data.get("html", "")
+    if not isinstance(html, str):
+        return jsonify({"error": "html must be a string"}), 400
+    html = html.strip()
     if not html:
         return jsonify({"error": "missing html"}), 400
+    try:
+        counts = {key: int(data.get(key, 0)) for key in ("nodes", "edges", "path_length")}
+    except (ValueError, TypeError, OverflowError):
+        return jsonify({"error": "invalid graph counts"}), 400
+    if any(value < 0 for value in counts.values()):
+        return jsonify({"error": "graph counts must be nonnegative"}), 400
 
     gid = uuid.uuid4().hex[:12]
-    graph_file = os.path.join(GRAPHS_DIR, f"{gid}.html")
-    with open(graph_file, "w", encoding="utf-8") as f:
-        f.write(html)
-
     now = datetime.now(timezone(timedelta(hours=3)))
     raw_label = data.get("label", f"Граф {gid[:6]}")
     graph_info = {
         "label": _strip_html(str(raw_label)),
-        "nodes": int(data.get("nodes", 0)),
-        "edges": int(data.get("edges", 0)),
-        "path_length": int(data.get("path_length", 0)),
+        **counts,
         "created": now.strftime("%Y-%m-%d %H:%M MSK"),
         "created_ts": now.timestamp(),
     }
     if isinstance(data.get("node_analytics"), dict):
         graph_info["node_analytics"] = data["node_analytics"]
 
-    idx = _load_index()
-    idx.setdefault("graphs", {})[gid] = graph_info
-    _save_index(idx)
+    if CLOUD_STORAGE:
+        GRAPH_STORE.save(gid, html, graph_info)
+    else:
+        graph_file = os.path.join(GRAPHS_DIR, f"{gid}.html")
+        with open(graph_file, "w", encoding="utf-8") as f:
+            f.write(html)
+        idx = _load_index()
+        idx.setdefault("graphs", {})[gid] = graph_info
+        _save_index(idx)
     return jsonify({"id": gid, "url": f"/view/{gid}", "raw_url": f"/graph/{gid}"}), 201
 
 
@@ -570,7 +646,15 @@ def api_list_graphs():
 
 
 @app.route("/api/graphs/<gid>", methods=["DELETE"])
+@_locked_index
 def api_delete_graph(gid: str):
+    if not _api_key_ok() and not _delete_token_ok(gid):
+        return jsonify({"error": "unauthorized"}), 401
+    if CLOUD_STORAGE:
+        if not re.fullmatch(r"[a-f0-9]{12}", gid) or GRAPH_STORE.info(gid) is None:
+            abort(404)
+        GRAPH_STORE.delete(gid)
+        return jsonify({"deleted": gid})
     idx = _load_index()
     if gid not in idx.get("graphs", {}):
         return jsonify({"error": "not found"}), 404
@@ -586,8 +670,8 @@ def api_delete_graph(gid: str):
 
 @app.route("/health")
 def health():
-    graph_count = len([f for f in os.listdir(GRAPHS_DIR) if f.endswith(".html")])
-    return jsonify({"status": "ok", "graphs": graph_count})
+    graph_count = len(_load_index().get("graphs", {})) if CLOUD_STORAGE else len([f for f in os.listdir(GRAPHS_DIR) if f.endswith(".html")])
+    return jsonify({"status": "ok", "graphs": graph_count, "storage": "blob" if CLOUD_STORAGE else "local"})
 
 
 if __name__ == "__main__":
