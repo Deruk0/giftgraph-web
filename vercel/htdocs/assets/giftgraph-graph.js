@@ -1214,6 +1214,9 @@
   }
 
   document.addEventListener('click', function (event) {
+    // The native theme button is invoked by our theme picker. Its synthetic
+    // click must not be mistaken for a click outside the settings panel.
+    if (event.target.closest && event.target.closest('#giftgraph-theme-toggle')) return;
     var settingsBtn = event.target.closest && event.target.closest('#giftgraph-settings-toggle');
     var closeBtn = event.target.closest && event.target.closest('#giftgraph-settings-close');
     var modeChoice = event.target.closest && event.target.closest('[data-gg-mode-choice]');

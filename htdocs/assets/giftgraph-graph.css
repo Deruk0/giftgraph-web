@@ -1261,13 +1261,20 @@ html, body { width: 100%; height: var(--giftgraph-app-height, 100dvh); overflow:
 .gg-node-more-peers[hidden] { display: none; }
 .gg-node-extra summary { min-height: 44px; display: flex; align-items: center; justify-content: center; gap: 6px; cursor: pointer; font-size: .74rem; font-weight: 700; color: var(--gg-muted); list-style: none; }
 .gg-node-extra summary::-webkit-details-marker { display: none; }
-.gg-node-extra summary::after { content: '⌄'; font-size: 1rem; }
-.gg-node-extra[open] summary::after { content: '⌃'; }
+.gg-node-extra summary { white-space: nowrap; }
+.gg-node-extra summary::after { content: ''; width: 6px; height: 6px; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: translateY(-2px) rotate(45deg); flex-shrink: 0; }
+.gg-node-extra[open] summary::after { transform: translateY(2px) rotate(225deg); }
 .gg-node-extra-content { padding-bottom: 10px; }
 .gg-node-profile { display: flex; justify-content: center; align-items: center; min-height: 44px; padding: 8px; border-radius: 12px; background: var(--gg-accent); color: #fff; text-decoration: none; font-size: .82rem; font-weight: 800; }
 html[data-gg-mode="dark"] .gg-node-profile { color: var(--gg-page); }
 html[data-gg-mode="dark"] .gg-node-actions .gg-node-profile { color: var(--gg-accent); }
 .gg-node-note { color: var(--gg-muted); margin: 10px 0 0; font-size: .67rem; line-height: 1.4; }
+/* Touch hover can persist after selection; the card already shows these details. */
+body:has(#giftgraph-node-details:not([hidden])) .vis-tooltip,
+body:has(#giftgraph-theme-panel.open) .vis-tooltip {
+  visibility: hidden !important;
+  pointer-events: none;
+}
 .gg-node-close:focus-visible, .gg-node-action:focus-visible, .gg-node-neighbor:focus-visible, .gg-node-more-peers:focus-visible, .gg-node-extra summary:focus-visible { outline: 3px solid var(--gg-accent-2); outline-offset: 2px; }
 @media (max-width: 620px) {
   #giftgraph-node-details { max-height: min(280px, calc(var(--giftgraph-app-height, 100dvh) * .36)); border-radius: 18px; }

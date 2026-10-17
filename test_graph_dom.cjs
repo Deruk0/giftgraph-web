@@ -3,6 +3,26 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 
+test('native theme click keeps settings open while an actual outside click closes them', () => {
+  const source = fs.readFileSync(__dirname + '/htdocs/assets/giftgraph-graph.js', 'utf8');
+  const start = source.indexOf("  document.addEventListener('click', function (event) {");
+  const handler = source.slice(start, source.indexOf("  document.addEventListener('keydown'", start));
+  let click;
+  let open = true;
+  const panel = { classList: { contains: () => open }, contains: () => false };
+  const context = vm.createContext({
+    document: { addEventListener: (_, fn) => { click = fn; }, getElementById: () => panel },
+    togglePanel: value => { open = value; },
+    triggerNativeTheme() { click({ target: { closest: selector => selector === '#giftgraph-theme-toggle' ? {} : null } }); },
+    applyTheme() {}, root: { getAttribute: () => 'ember' }
+  });
+  vm.runInContext(handler, context);
+  click({ target: { closest: selector => selector === '[data-gg-mode-choice]' ? { getAttribute: () => 'dark' } : null } });
+  assert.equal(open, true);
+  click({ target: { closest: () => null } });
+  assert.equal(open, false);
+});
+
 test('camera can zoom out to 2 percent while retaining a lower limit', () => {
   const source = fs.readFileSync(__dirname + '/htdocs/assets/giftgraph-graph.js', 'utf8');
   const binding = source.slice(source.indexOf('  function bindZoomLimit()'), source.indexOf('  function formatAutoDelete('));
