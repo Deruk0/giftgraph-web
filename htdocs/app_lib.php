@@ -201,6 +201,8 @@ function gg_current_origin(): string
 
 function gg_inject_toolbar(string $html, string $gid, array $info): string
 {
+    // Archived snapshots share the same mobile viewport and safe-area behavior.
+    $html = preg_replace('~<meta\b(?=[^>]*\bname\s*=\s*["\']viewport["\'])[^>]*>~i', '', $html) ?? $html;
     $label = gg_escape((string)($info['label'] ?? $gid));
     $nodes = gg_escape((string)($info['nodes'] ?? '?'));
     $edges = gg_escape((string)($info['edges'] ?? '?'));
@@ -213,19 +215,27 @@ function gg_inject_toolbar(string $html, string $gid, array $info): string
     $deleteToken = gg_escape(gg_delete_token($gid));
     $deleteUrl = gg_escape('/api/graphs/index.php?gid=' . rawurlencode($gid));
 
+    $themeJs = gg_escape(gg_asset_url('/assets/giftgraph-theme.js'));
+    $glassJs = gg_escape(gg_asset_url('/assets/giftgraph-glass.js'));
+    $mobileCss = gg_escape(gg_asset_url('/assets/giftgraph-mobile.css'));
+    $mobileJs = gg_escape(gg_asset_url('/assets/giftgraph-mobile.js'));
     $graphCss = gg_escape(gg_asset_url('/assets/giftgraph-graph.css'));
     $graphI18nJs = gg_escape(gg_asset_url('/assets/giftgraph-i18n.js'));
     $graphJs = gg_escape(gg_asset_url('/assets/giftgraph-graph.js'));
     $miniappJs = gg_escape(gg_asset_url('/assets/giftgraph-miniapp.js'));
     $assets = <<<HTML
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<script src="{$themeJs}"></script>
+<script defer src="{$glassJs}"></script>
 <link rel="stylesheet" href="{$graphCss}">
+<link rel="stylesheet" href="{$mobileCss}">
+<script defer src="{$mobileJs}"></script>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <script defer src="{$miniappJs}"></script>
 HTML;
 
     $toolbar = <<<HTML
-<canvas id="giftgraph-ambient-canvas" aria-hidden="true"></canvas>
-<div id="giftgraph-toolbar" role="region" aria-label="Панель графа">
+<div id="giftgraph-toolbar" class="liquid-glass" role="region" aria-label="Панель графа">
   <div class="tb-left">
     <a href="/" class="tb-btn tb-back tb-icon-text">
       <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M15 6l-6 6 6 6"/><path d="M9 12h11"/></svg>
@@ -271,41 +281,18 @@ HTML;
     </button>
   </div>
 </div>
-<div id="giftgraph-theme-panel" aria-hidden="true">
+<div id="giftgraph-theme-panel" role="dialog" aria-modal="true" aria-labelledby="gg-settings-title" aria-hidden="true">
+  <div class="tb-panel-frame liquid-glass liquid-glass--modal">
   <div class="tb-panel-head">
     <span>
       <span class="tb-panel-kicker">визуальный режим</span>
-      <strong>Настройки графа</strong>
+      <strong id="gg-settings-title">Настройки графа</strong>
     </span>
     <button class="tb-icon" id="giftgraph-settings-close" type="button" aria-label="Закрыть настройки">
       <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6L6 18"/></svg>
     </button>
   </div>
   <div class="tb-settings-grid">
-    <section class="tb-section">
-      <div class="tb-section-title">Язык интерфейса</div>
-      <div class="tb-mode-row tb-language-row" role="group" aria-label="Язык интерфейса">
-        <button type="button" class="tb-choice" data-language-choice="ru">Русский</button>
-        <button type="button" class="tb-choice" data-language-choice="en">English</button>
-      </div>
-      <div class="tb-section-title">Вид</div>
-      <div class="tb-mode-row">
-        <button type="button" class="tb-choice" data-gg-mode-choice="light">Светлая</button>
-        <button type="button" class="tb-choice" data-gg-mode-choice="dark">Темная</button>
-      </div>
-      <div class="tb-palettes">
-        <button type="button" class="tb-palette" data-gg-palette-choice="ember"><span>Studio Violet</span><i class="tb-swatch" style="--a:#7a3cff;--b:#b08cff;--c:#eadcff"></i></button>
-        <button type="button" class="tb-palette" data-gg-palette-choice="reef"><span>Signal Blue</span><i class="tb-swatch" style="--a:#2f6bff;--b:#79a8ff;--c:#dbe7ff"></i></button>
-        <button type="button" class="tb-palette" data-gg-palette-choice="iris"><span>Rose Index</span><i class="tb-swatch" style="--a:#ca3c76;--b:#ff8bb7;--c:#ffd7e8"></i></button>
-        <button type="button" class="tb-palette" data-gg-palette-choice="graphite"><span>Ink Contrast</span><i class="tb-swatch" style="--a:#22201c;--b:#7b7267;--c:#e3d8c8"></i></button>
-      </div>
-      <div class="tb-color-grid" aria-label="Точная настройка цветов">
-        <label class="tb-color">Акцент <input id="gg-theme-color-accent" type="color" data-gg-theme-color="accent"></label>
-        <label class="tb-color">Узлы <input id="gg-theme-color-accent-2" type="color" data-gg-theme-color="accent2"></label>
-        <label class="tb-color">Мягкий <input id="gg-theme-color-accent-3" type="color" data-gg-theme-color="accent3"></label>
-      </div>
-      <button type="button" class="tb-choice" id="gg-theme-color-reset">Сбросить цвета</button>
-    </section>
     <section class="tb-section">
       <div class="tb-section-title">Граф</div>
       <label class="tb-range">Узлы <span id="gg-node-scale-value">1.0</span><input id="gg-node-scale" type="range" min="0.65" max="1.8" step="0.05" value="1"></label>
@@ -318,6 +305,30 @@ HTML;
         <button type="button" class="tb-choice" data-gg-action="stabilize">Разложить узлы</button>
       </div>
     </section>
+    <section class="tb-section">
+      <div class="tb-section-title">Язык интерфейса</div>
+      <div class="tb-mode-row tb-language-row" role="group" aria-label="Язык интерфейса">
+        <button type="button" class="tb-choice" data-language-choice="ru">Русский</button>
+        <button type="button" class="tb-choice" data-language-choice="en">English</button>
+      </div>
+      <div class="tb-section-title">Вид</div>
+      <div class="tb-mode-row">
+        <button type="button" class="tb-choice" data-gg-mode-choice="light">Светлая</button>
+        <button type="button" class="tb-choice" data-gg-mode-choice="dark">Темная</button>
+      </div>
+      <div class="tb-palettes">
+        <button type="button" class="tb-palette" data-gg-palette-choice="ember"><span>Atlas Teal</span><i class="tb-swatch" style="--a:#146b62;--b:#79aaa3;--c:#dcece8"></i></button>
+        <button type="button" class="tb-palette" data-gg-palette-choice="reef"><span>Signal Blue</span><i class="tb-swatch" style="--a:#356ddc;--b:#7ca6ed;--c:#dce8ff"></i></button>
+        <button type="button" class="tb-palette" data-gg-palette-choice="iris"><span>Rose Index</span><i class="tb-swatch" style="--a:#bd497f;--b:#df95b5;--c:#f9dcea"></i></button>
+        <button type="button" class="tb-palette" data-gg-palette-choice="graphite"><span>Ink Contrast</span><i class="tb-swatch" style="--a:#526078;--b:#8f9aaf;--c:#dce1ed"></i></button>
+      </div>
+      <div class="tb-color-grid" aria-label="Точная настройка цветов">
+        <label class="tb-color">Акцент <input id="gg-theme-color-accent" type="color" data-gg-theme-color="accent"></label>
+        <label class="tb-color">Узлы <input id="gg-theme-color-accent-2" type="color" data-gg-theme-color="accent2"></label>
+        <label class="tb-color">Мягкий <input id="gg-theme-color-accent-3" type="color" data-gg-theme-color="accent3"></label>
+      </div>
+      <button type="button" class="tb-choice" id="gg-theme-color-reset">Сбросить цвета</button>
+    </section>
     <section class="tb-section tb-section-wide">
       <div class="tb-section-title">Автоудаление</div>
       <div class="tb-auto-row" data-gg-autodelete-group>
@@ -328,6 +339,7 @@ HTML;
       </div>
       <div class="tb-auto-status" id="gg-auto-delete-status">Не запланировано</div>
     </section>
+  </div>
   </div>
 </div>
 <script src="{$graphI18nJs}"></script>

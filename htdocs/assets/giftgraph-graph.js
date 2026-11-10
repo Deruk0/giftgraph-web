@@ -5,10 +5,6 @@
   var storageMode = 'giftgraph-mode';
   var storageCustomPrefix = 'giftgraph-theme-custom';
   var defaultAutoDeleteKey = 'giftgraph-auto-delete-default-minutes';
-  var canvas = document.getElementById('giftgraph-ambient-canvas');
-  var ctx = canvas ? canvas.getContext('2d') : null;
-  var points = [];
-  var raf = 0;
   var allowedPalettes = ['ember', 'reef', 'iris', 'graphite'];
   var paletteAliases = {
     violet: 'ember',
@@ -25,20 +21,20 @@
   var autoDeleteTimer = 0;
   var graphPalettes = {
     ember: {
-      dark: { start:'#fff7fb', regular:'#8c68e6', path:'#b693ff', anonymous:'#ffaf5f', bot:'#45d3be', promo:'#f6c85f', edge:'#8e8299', edgePath:'#c7b0ff', font:'#f7f0ff' },
-      light:{ start:'#16110d', regular:'#b08cff', path:'#7a3cff', anonymous:'#ef8a24', bot:'#149d88', promo:'#d68112', edge:'#7b7065', edgePath:'#7a3cff', font:'#16110d' }
+      dark: { start:'#edf1f2', regular:'#6ba99f', path:'#8bd0c3', anonymous:'#ffaf5f', bot:'#45d3be', promo:'#f6c85f', edge:'#8a999d', edgePath:'#a6d9cf', font:'#edf1f2' },
+      light:{ start:'#20282b', regular:'#79aaa3', path:'#146b62', anonymous:'#ef8a24', bot:'#149d88', promo:'#d68112', edge:'#879396', edgePath:'#146b62', font:'#20282b' }
     },
     reef: {
-      dark: { start:'#fbfdff', regular:'#5d8df3', path:'#8bb3ff', anonymous:'#ffaf5f', bot:'#45d3be', promo:'#f6c85f', edge:'#8494ab', edgePath:'#9fc1ff', font:'#eff5ff' },
-      light:{ start:'#11151d', regular:'#79a8ff', path:'#2f6bff', anonymous:'#ef8a24', bot:'#149d88', promo:'#d68112', edge:'#738191', edgePath:'#2f6bff', font:'#11151d' }
+      dark: { start:'#fbfdff', regular:'#5d8df3', path:'#9bbfff', anonymous:'#ffaf5f', bot:'#45d3be', promo:'#f6c85f', edge:'#8494ab', edgePath:'#9fc1ff', font:'#eff5ff' },
+      light:{ start:'#11151d', regular:'#7ca6ed', path:'#356ddc', anonymous:'#ef8a24', bot:'#149d88', promo:'#d68112', edge:'#738191', edgePath:'#356ddc', font:'#11151d' }
     },
     iris: {
-      dark: { start:'#fff7fb', regular:'#d8689a', path:'#ff8fbf', anonymous:'#ffaf5f', bot:'#45d3be', promo:'#f6c85f', edge:'#997c8a', edgePath:'#ffadd0', font:'#fff0f6' },
-      light:{ start:'#181113', regular:'#ff8bb7', path:'#ca3c76', anonymous:'#ef8a24', bot:'#149d88', promo:'#d68112', edge:'#826f76', edgePath:'#ca3c76', font:'#181113' }
+      dark: { start:'#edf1f2', regular:'#d8689a', path:'#f5a3c7', anonymous:'#ffaf5f', bot:'#45d3be', promo:'#f6c85f', edge:'#997c8a', edgePath:'#ffadd0', font:'#fff0f6' },
+      light:{ start:'#181113', regular:'#df95b5', path:'#bd497f', anonymous:'#ef8a24', bot:'#149d88', promo:'#d68112', edge:'#826f76', edgePath:'#bd497f', font:'#181113' }
     },
     graphite: {
-      dark: { start:'#fff8ec', regular:'#cdb79b', path:'#f0e1c7', anonymous:'#ffb46c', bot:'#54d1bf', promo:'#f6cb6b', edge:'#978a7b', edgePath:'#f0e1c7', font:'#f5ecdf' },
-      light:{ start:'#14110d', regular:'#7b7267', path:'#22201c', anonymous:'#d9791f', bot:'#1c8f7f', promo:'#b7791f', edge:'#7b7065', edgePath:'#22201c', font:'#14110d' }
+      dark: { start:'#fff8ec', regular:'#cdb79b', path:'#c2cee5', anonymous:'#ffb46c', bot:'#54d1bf', promo:'#f6cb6b', edge:'#978a7b', edgePath:'#c2cee5', font:'#f5ecdf' },
+      light:{ start:'#14110d', regular:'#8f9aaf', path:'#526078', anonymous:'#d9791f', bot:'#1c8f7f', promo:'#b7791f', edge:'#879396', edgePath:'#526078', font:'#14110d' }
     }
   };
 
@@ -142,8 +138,14 @@
       { key: 'accent2', css: '--gg-accent-2' },
       { key: 'accent3', css: '--gg-accent-3' }
     ].forEach(function (item) {
-      if (custom[item.key]) root.style.setProperty(item.css, custom[item.key]);
-      else root.style.removeProperty(item.css);
+      var sharedCss = item.css.replace('--gg-', '--');
+      if (custom[item.key]) {
+        root.style.setProperty(item.css, custom[item.key]);
+        root.style.setProperty(sharedCss, custom[item.key]);
+      } else {
+        root.style.removeProperty(item.css);
+        root.style.removeProperty(sharedCss);
+      }
     });
   }
 
@@ -319,7 +321,8 @@
     var type = data.type === 'bot' ? nodeDetailsText('Бот', 'Bot') : data.type === 'anonymous' ? nodeDetailsText('Анонимный отправитель', 'Anonymous sender') : nodeDetailsText('Пользователь', 'User');
     element('span', 'gg-node-type', type, heading);
     element('h2', 'gg-node-name', data.label, heading).id = 'gg-node-name';
-    var close = element('button', 'gg-node-close', '×', head);
+    var close = element('button', 'gg-node-close', null, head);
+    close.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>';
     close.type = 'button';
     close.setAttribute('aria-label', nodeDetailsText('Закрыть карточку участника', 'Close participant details'));
     close.addEventListener('click', closeNodeDetails);
@@ -346,18 +349,21 @@
       element('p', 'gg-node-level', nodeDetailsText('Уровень от начала поиска: ', 'Level from search start: ') + data.info.level, content);
     }
     var actions = element('div', 'gg-node-actions', null, more);
-    var focus = element('button', 'gg-node-action', '◎', actions);
+    var focus = element('button', 'gg-node-action', null, actions);
+    focus.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H3v5M16 3h5v5M3 16v5h5M21 16v5h-5M8 12h8M12 8v8"/></svg>';
     focus.type = 'button';
     focus.setAttribute('aria-label', nodeDetailsText('Показать связи', 'Show connections'));
     focus.title = nodeDetailsText('Показать связи', 'Show connections');
     focus.addEventListener('click', function () { extra.open = false; focusNodeConnections(id); });
-    var copy = element('button', 'gg-node-action', '⧉', actions);
+    var copy = element('button', 'gg-node-action', null, actions);
+    copy.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 9h11v11H9zM15 5V3H3v12h2"/></svg>';
     copy.type = 'button';
     copy.setAttribute('aria-label', data.username ? nodeDetailsText('Копировать ник', 'Copy username') : nodeDetailsText('Копировать ID', 'Copy ID'));
     copy.title = data.username ? nodeDetailsText('Копировать ник', 'Copy username') : nodeDetailsText('Копировать ID', 'Copy ID');
     copy.addEventListener('click', function () { copyNodeIdentity(data); });
     if (data.username) {
-      var profile = element('a', 'gg-node-action gg-node-profile', 'TG', actions);
+      var profile = element('a', 'gg-node-action gg-node-profile', null, actions);
+    profile.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3h7v7M21 3l-11 11M10 3H3v18h18v-7"/></svg>';
       profile.setAttribute('aria-label', nodeDetailsText('Открыть Telegram', 'Open Telegram'));
       profile.title = nodeDetailsText('Открыть Telegram', 'Open Telegram');
       profile.href = 'https://t.me/' + data.username;
@@ -495,7 +501,14 @@
   function nodeFontSize(info, fallback) {
     var size = Number(fallback) || (!info ? 13 : info.kind === 'start' ? 17 :
       ['anonymous', 'bot', 'promo'].indexOf(info.kind) !== -1 ? 10 : 13);
+    // Small graphs can keep readable labels in overview without covering a
+    // dense archive graph with hundreds of overlapping names.
     return Math.round(size * 1.45);
+  }
+
+  function minimumLabelSize(viewScale, nodeCount) {
+    return nodeCount <= 40 && Number.isFinite(viewScale) && viewScale > 0
+      ? Math.min(96, 11 / viewScale) : 0;
   }
 
   function nodeShape(info) {
@@ -564,16 +577,20 @@
         var fill = nodeFill(info, colors);
         var font = Object.assign({}, base.font || {}, {
           color: colors.font,
+          face: 'Segoe UI, system-ui, sans-serif',
+          strokeWidth: 0,
           size: nodeFontSize(info, base.fontSize),
           bold: info.kind === 'start'
         });
         return {
           id: id,
           shape: nodeShape(info),
-          borderWidth: info.kind === 'start' ? 3 : 2,
+          borderWidth: info.kind === 'start' ? 2 : 1.5,
           color: {
             background: fill,
-            border: nodeBorder(info, colors)
+            border: nodeBorder(info, colors),
+            highlight: { background: fill, border: colors.path },
+            hover: { background: fill, border: colors.path }
           },
           font: font,
           title: graphNodeTitle(id, info)
@@ -737,12 +754,15 @@
 
     var meta = getGraphMeta();
     var colors = currentGraphColors();
+    var labelMinimum = minimumLabelSize(net.getScale ? net.getScale() : 1, Object.keys(graphBase.nodes || {}).length);
     var nodeUpdates = Object.keys(graphBase.nodes || {}).map(function (id) {
       var base = graphBase.nodes[id];
       var info = meta && meta.nodes ? meta.nodes[id] : null;
       var font = Object.assign({}, base.font || {}, {
         color: colors.font,
-        size: Math.round(clamp(nodeFontSize(info, base.fontSize) * clamp(nodeScale, 0.7, 1.55), 12, 36))
+        strokeWidth: 0,
+        size: Math.round(Math.max(clamp(nodeFontSize(info, base.fontSize) * clamp(nodeScale, 0.7, 1.55), 12, 36),
+          labelMinimum))
       });
       return {
         id: id,
@@ -848,8 +868,7 @@
         saveThemeCustom(payload);
         applyCustomColors();
         applyNetworkTheme();
-        resetAmbient();
-      });
+          });
     });
 
     var colorReset = document.getElementById('gg-theme-color-reset');
@@ -859,8 +878,7 @@
         applyCustomColors();
         syncThemeColorInputs();
         applyNetworkTheme();
-        resetAmbient();
-      });
+          });
     }
 
     applyGraphControls(true);
@@ -1057,6 +1075,7 @@
     palette = cleanPalette(palette);
     mode = cleanMode(mode);
     root.setAttribute('data-gg-palette', palette);
+    root.setAttribute('data-palette', palette);
     root.setAttribute('data-gg-mode', mode);
     root.setAttribute('data-theme', mode);
     save(storagePalette, palette);
@@ -1064,7 +1083,6 @@
     syncNativeTheme(mode);
     applyCustomColors();
     updateControls();
-    resetAmbient();
     setTimeout(function () {
       applyNetworkTheme();
       applyGraphControls(true);
@@ -1091,6 +1109,12 @@
     panel.classList.toggle('open', open);
     panel.setAttribute('aria-hidden', open ? 'false' : 'true');
     btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    if (open) {
+      var settings = panel.querySelector('.tb-settings-grid');
+      var frame = panel.querySelector('.tb-panel-frame');
+      if (settings) settings.scrollTop = 0;
+      if (frame) frame.scrollTop = 0;
+    }
   }
 
   function tidyOldChrome() {
@@ -1120,70 +1144,6 @@
     syncNativeGraphText();
   }
 
-  function resizeCanvas() {
-    if (!canvas || !ctx) return;
-    var ratio = Math.min(window.devicePixelRatio || 1, 2);
-    canvas.width = Math.floor(window.innerWidth * ratio);
-    canvas.height = Math.floor(window.innerHeight * ratio);
-    canvas.style.width = window.innerWidth + 'px';
-    canvas.style.height = window.innerHeight + 'px';
-    ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
-    resetAmbient();
-  }
-
-  function resetAmbient() {
-    if (!canvas || !ctx) return;
-    var count = Math.max(20, Math.min(56, Math.round(window.innerWidth / 27)));
-    points = Array.from({ length: count }, function (_, index) {
-      return {
-        x: Math.random() * window.innerWidth,
-        y: Math.random() * window.innerHeight,
-        r: index % 8 === 0 ? 2.4 : 1 + Math.random() * 1.4,
-        a: Math.random() * Math.PI * 2,
-        s: 0.07 + Math.random() * 0.22
-      };
-    });
-  }
-
-  function draw(time) {
-    if (!canvas || !ctx) return;
-    var w = window.innerWidth;
-    var h = window.innerHeight;
-    var accent = css('--gg-accent');
-    var accent2 = css('--gg-accent-2');
-    var accent3 = css('--gg-accent-3');
-    ctx.clearRect(0, 0, w, h);
-
-    for (var ring = 0; ring < 5; ring++) {
-      var cx = w * (0.12 + ring * 0.2);
-      var cy = h * (0.25 + (ring % 2) * 0.28);
-      ctx.save();
-      ctx.translate(cx, cy);
-      ctx.rotate(-0.45 + ring * 0.14 + Math.sin(time * 0.0002) * 0.03);
-      ctx.beginPath();
-      ctx.ellipse(0, 0, 180 + ring * 32, 70 + ring * 12, 0, 0, Math.PI * 2);
-      ctx.strokeStyle = rgba(ring % 3 === 0 ? accent : ring % 3 === 1 ? accent2 : accent3, 0.10);
-      ctx.lineWidth = 1;
-      ctx.stroke();
-      ctx.restore();
-    }
-
-    points.forEach(function (p, index) {
-      p.x += Math.cos(time * 0.00025 + p.a) * p.s;
-      p.y += Math.sin(time * 0.00021 + p.a) * p.s;
-      if (p.x < -20) p.x = w + 20;
-      if (p.x > w + 20) p.x = -20;
-      if (p.y < -20) p.y = h + 20;
-      if (p.y > h + 20) p.y = -20;
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
-      ctx.fillStyle = rgba(index % 3 === 0 ? accent : index % 3 === 1 ? accent2 : accent3, 0.30);
-      ctx.fill();
-    });
-
-    raf = requestAnimationFrame(draw);
-  }
-
   function waitForNetworkBoot() {
     var attempts = 0;
     function boot() {
@@ -1197,6 +1157,25 @@
       bindWorldGrid();
       bindZoomLimit();
       bindNodeDetails();
+      function syncLabelScale() {
+        var scale = net.getScale ? net.getScale() : 1;
+        var ids = Object.keys(graphBase.nodes || {});
+        var minimum = minimumLabelSize(scale, ids.length);
+        if (ids.length > 40) return;
+        var meta = getGraphMeta();
+        var nodeScale = clamp(controlNumber('gg-node-scale', 1), 0.7, 1.55);
+        var updates = ids.map(function (id) {
+          var base = graphBase.nodes[id];
+          var info = meta && meta.nodes ? meta.nodes[id] : null;
+          var node = net.body.data.nodes.get(id);
+          var size = Math.round(Math.max(clamp(nodeFontSize(info, base.fontSize) * nodeScale, 12, 36), minimum));
+          if (!node || node.font && node.font.size === size) return null;
+          return { id: id, font: Object.assign({}, node.font || {}, { size: size }) };
+        }).filter(Boolean);
+        if (updates.length) net.body.data.nodes.update(updates);
+      }
+      net.on('zoom', syncLabelScale);
+      net.on('resize', syncLabelScale);
       applyNetworkTheme();
       applyGraphControls(true);
       try {
@@ -1259,18 +1238,10 @@
   bindSettingsControls();
   bindAutoDelete();
   waitForNetworkBoot();
-  resizeCanvas();
-  window.addEventListener('resize', resizeCanvas);
   tidyOldChrome();
   setTimeout(tidyOldChrome, 400);
   setTimeout(tidyOldChrome, 1300);
   if (window.MutationObserver && document.body) {
     new MutationObserver(tidyOldChrome).observe(document.body, { childList:true, subtree:true, characterData:true });
-  }
-  if (!window.matchMedia || !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-    raf = requestAnimationFrame(draw);
-  } else {
-    draw(0);
-    cancelAnimationFrame(raf);
   }
 })();

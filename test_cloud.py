@@ -2,6 +2,11 @@ import importlib.util
 import os
 import threading
 import unittest
+import hashlib
+import hmac
+import json
+import time
+from urllib.parse import urlencode
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -32,19 +37,31 @@ class CloudTests(unittest.TestCase):
         MemoryBlob.objects = {}
         self.mock = patch.object(graph_storage, 'BlobClient', MemoryBlob)
         self.mock.start()
-        self.env = patch.dict(os.environ, {'GIFTGRAPH_STORAGE': 'blob', 'GIFTGRAPH_SECRET': 'test-secret'})
+        self.env = patch.dict(os.environ, {'GIFTGRAPH_STORAGE': 'blob', 'GIFTGRAPH_SECRET': 'test-secret', 'BOT_TOKEN': '123:test'})
         self.env.start()
         spec = importlib.util.spec_from_file_location('cloud_test_server', Path(__file__).with_name('server.py'))
         self.module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(self.module)
         self.client = self.module.app.test_client()
 
+    def login(self, uid, age=0, signature=None):
+        fields = {'auth_date': str(int(time.time()) - age), 'user': json.dumps({'id': uid})}
+        check = '\n'.join(f'{k}={v}' for k, v in sorted(fields.items()))
+        secret = hmac.new(b'WebAppData', b'123:test', hashlib.sha256).digest()
+        fields['hash'] = signature or hmac.new(secret, check.encode(), hashlib.sha256).hexdigest()
+        return self.client.post('/api/auth/telegram', json={'init_data': urlencode(fields)})
+
+    def upload(self, owner):
+        return self.client.post('/api/graphs', json={'html': '<html><head></head><body>Private</body></html>',
+                                'label': f'Owner {owner}', 'owner_id': owner},
+                                headers={'Authorization': 'Bearer test-secret'}).json['id']
+
     def tearDown(self):
         self.mock.stop()
         self.env.stop()
 
     def test_upload_read_restart_delete_and_auth(self):
-        payload = {'html': '<html><head></head><body>Graph</body></html>', 'nodes': 3, 'edges': 2, 'label': 'Test'}
+        payload = {'html': '<html><head></head><body>Graph</body></html>', 'nodes': 3, 'edges': 2, 'label': 'Test', 'owner_id': 42}
         self.assertEqual(self.client.post('/api/graphs', json=payload).status_code, 401)
         response = self.client.post('/api/graphs', json=payload, headers={'Authorization':'Bearer test-secret'})
         self.assertEqual(response.status_code, 201)
@@ -52,15 +69,47 @@ class CloudTests(unittest.TestCase):
         # A different store instance must see persisted objects without a local index.
         self.module.GRAPH_STORE = graph_storage.BlobGraphStore()
         self.assertEqual(self.client.get('/health').json['storage'], 'blob')
+        self.assertEqual(self.client.get('/api/graphs').status_code, 401)
+        self.assertEqual(self.client.delete('/api/graphs/'+gid).status_code, 401)
+        self.assertEqual(self.login(42).status_code, 200)
         self.assertEqual(self.client.get('/api/graphs').json['count'], 1)
         self.assertEqual(self.client.get('/graph/'+gid).text, payload['html'])
-        self.assertIn('giftgraph-toolbar', self.client.get('/view/'+gid).text)
-        self.assertIn('Test', self.client.get('/').text)
+        page_headers = {'X-GiftGraph-Page': '1'}
+        self.assertIn('giftgraph-toolbar', self.client.get('/view/'+gid, headers=page_headers).text)
+        self.assertIn('Test', self.client.get('/', headers=page_headers).text)
         self.assertEqual(self.client.delete('/api/graphs/'+gid).status_code, 401)
         token = self.module._delete_token(gid)
         self.assertEqual(self.client.delete('/api/graphs/'+gid, headers={'X-GiftGraph-Delete-Token':token}).status_code, 200)
-        self.assertEqual(self.client.get('/view/'+gid).status_code, 404)
+        self.assertEqual(self.client.get('/view/'+gid, headers=page_headers).status_code, 404)
         self.assertEqual(MemoryBlob.objects, {})
+
+    def test_users_cannot_list_read_or_delete_each_others_graphs(self):
+        first, second = self.upload(42), self.upload(99)
+        self.module.GRAPH_STORE.save('abcdef123456', 'legacy', {'label': 'Unowned'})
+        headers = {'X-GiftGraph-Page': '1'}
+        for uid, own, other in [(42, first, second), (99, second, first)]:
+            self.assertEqual(self.login(uid).status_code, 200)
+            self.assertEqual(set(self.client.get('/api/graphs').json['graphs']), {own})
+            home = self.client.get('/', headers=headers)
+            self.assertIn(f'/view/{own}', home.text)
+            self.assertNotIn(other, home.text)
+            self.assertNotIn('Unowned', home.text)
+            self.assertIn('no-store', home.headers['Cache-Control'])
+            self.assertNotIn(own, self.client.get('/').text)
+            self.assertEqual(self.client.get('/view/'+other, headers=headers).status_code, 404)
+            self.assertEqual(self.client.get('/graph/'+other).status_code, 404)
+            self.assertEqual(self.client.get('/graph/abcdef123456').status_code, 404)
+            self.assertEqual(self.client.delete('/api/graphs/'+other, headers={
+                'X-GiftGraph-Delete-Token': self.module._delete_token(other)}).status_code, 404)
+            self.assertEqual(self.client.get('/graph/'+own).status_code, 200)
+
+    def test_forged_and_expired_login_and_missing_owner_are_rejected(self):
+        for kwargs in [{'signature': '0'*64}, {'age': 43201}, {'age': -120}]:
+            self.assertEqual(self.login(42, **kwargs).status_code, 401)
+            self.assertEqual(self.client.get('/api/graphs').status_code, 401)
+        response = self.client.post('/api/graphs', json={'html': 'private'},
+                                    headers={'Authorization': 'Bearer test-secret'})
+        self.assertEqual(response.status_code, 400)
 
     def test_import_retry_and_incomplete_write(self):
         store = graph_storage.BlobGraphStore()

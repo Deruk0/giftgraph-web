@@ -1,6 +1,17 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+test('overview labels retain a screen minimum only for sparse graphs and stay bounded at extreme zoom', () => {
+  const source = fs.readFileSync(__dirname + '/htdocs/assets/giftgraph-graph.js', 'utf8');
+  const sizing = source.slice(source.indexOf('  function nodeFontSize('), source.indexOf('  function nodeShape('));
+  const context = vm.createContext({});
+  vm.runInContext(sizing, context);
+  assert.equal(vm.runInContext('minimumLabelSize(0.25, 10)', context), 44);
+  assert.equal(vm.runInContext('minimumLabelSize(0.25, 500)', context), 0);
+  assert.equal(vm.runInContext('minimumLabelSize(0.02, 10)', context), 96);
+  assert.equal(vm.runInContext('minimumLabelSize(0, 10)', context), 0);
+  assert.equal(vm.runInContext('nodeFontSize(null, 13)', context), 19);
+});
 const vm = require('node:vm');
 
 test('native theme click keeps settings open while an actual outside click closes them', () => {

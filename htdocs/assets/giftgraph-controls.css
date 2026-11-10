@@ -1,0 +1,99 @@
+/* Shared button surfaces make actions and selected options recognizable. */
+:root, html[data-theme='light'] {
+  --button-surface: #fff;
+  --button-border: rgba(32,40,43,.16);
+  --button-highlight: transparent;
+  --button-shadow: none;
+}
+html[data-theme='dark'] {
+  --button-surface: #272f32;
+  --button-border: rgba(237,241,242,.16);
+  --button-highlight: transparent;
+  --button-shadow: none;
+}
+:root {
+  --button-selected: color-mix(in srgb, var(--accent) 10%, var(--button-surface));
+  --button-selected-border: color-mix(in srgb, var(--accent) 65%, var(--button-border));
+  --button-hover: color-mix(in srgb, var(--accent) 8%, var(--button-surface));
+}
+:is(.mode-choice, .tb-choice, .palette-card, .tb-palette, .control-btn, .text-btn, .icon-btn, .tb-btn, .tb-icon, .gg-node-close, .gg-node-action, .gg-node-neighbor, .gg-node-more-peers),
+.gg-confirm-actions button {
+  min-height: 44px;
+  padding: 10px 14px;
+  border: 1px solid var(--button-border);
+  border-radius: 8px;
+  background: var(--button-surface);
+  color: var(--ink);
+  box-shadow: var(--button-shadow), inset 0 1px 0 var(--button-highlight);
+  line-height: 1.35;
+  transition: background .16s ease-out, border-color .16s ease-out, transform .1s ease-out;
+}
+:is(.mode-choice, .tb-choice) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  gap: 5px;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+:is(.mode-row, .tb-mode-row, .tb-action-row) {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+:is(.auto-delete-row, .tb-auto-row) {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+:is(.auto-delete-row, .tb-auto-row) > button { padding: 10px 5px; }
+:is(.mode-choice, .tb-choice, .palette-card, .tb-palette).active {
+  background: var(--button-selected);
+  border-color: var(--button-selected-border);
+  color: var(--ink);
+  box-shadow: var(--button-shadow), inset 0 1px 0 var(--button-highlight), inset 3px 0 0 var(--accent);
+  font-weight: 500;
+}
+:is(.mode-choice, .tb-choice).active::before { color: var(--accent); margin: 0; }
+.palette-list, .tb-palettes { gap: 10px; }
+.palette-card, .tb-palette { padding: 13px 14px; gap: 12px; }
+.palette-card > span, .tb-palette > span { min-width: 0; }
+.palette-card i { width: 48px; }
+.theme-reset, #gg-theme-color-reset { color: var(--accent); }
+.theme-reset { margin-top: 6px; }
+.icon-btn, .tb-icon, .gg-node-close, .gg-node-action { min-width: 44px; padding: 0; }
+.gg-node-actions { gap: 6px; }
+.gg-node-actions .gg-node-profile { color: var(--accent); }
+.gg-node-extra summary {
+  width: calc(100% - 104px);
+  min-height: 44px;
+  padding: 8px 10px;
+  border: 1px solid var(--button-border);
+  border-radius: 8px;
+  background: var(--button-surface);
+  color: var(--ink);
+  box-shadow: var(--button-shadow);
+  justify-content: center;
+}
+.gg-node-more.has-profile .gg-node-extra summary { width: calc(100% - 148px); padding-right: 10px; }
+.gg-node-more-peers { margin-top: 8px; text-align: center; }
+.gg-confirm-actions { gap: 10px; }
+.gg-confirm-actions button { flex: 1; padding: 10px 14px; }
+.gg-confirm-actions .gg-confirm-danger {
+  background: color-mix(in srgb, var(--danger) 12%, var(--button-surface));
+  border-color: color-mix(in srgb, var(--danger) 50%, var(--button-border));
+  color: var(--danger);
+}
+.icon-btn.danger, .tb-btn.danger { color: var(--muted); background: transparent; border-color: transparent; box-shadow: none; }
+.icon-btn.danger:hover, .tb-btn.danger:hover { color: var(--danger); border-color: var(--button-border); }
+.text-btn.open { color: var(--accent); border-color: var(--line); }
+@media (hover: hover) {
+  :is(.mode-choice, .tb-choice, .palette-card, .tb-palette, .control-btn, .text-btn, .icon-btn, .tb-btn, .tb-icon, .gg-node-close, .gg-node-action, .gg-node-neighbor, .gg-node-more-peers):hover,
+  .gg-node-extra summary:hover, .gg-confirm-actions button:hover {
+    background: var(--button-hover);
+    border-color: var(--button-selected-border);
+  }
+}
+:is(.mode-choice, .tb-choice, .palette-card, .tb-palette, .control-btn, .text-btn, .icon-btn, .tb-btn, .tb-icon, .gg-node-close, .gg-node-action, .gg-node-neighbor, .gg-node-more-peers):active,
+.gg-node-extra summary:active, .gg-confirm-actions button:active { transform: scale(.97); box-shadow: none; }

@@ -1,0 +1,28 @@
+/* GiftGraph surface compatibility layer. Atlas direction informed by
+ * unslop by Damir Sokolovsky, CC BY 4.0: https://github.com/heydamir/unslop */
+:root, html[data-theme='light'] {
+  color-scheme: light;
+  --glass-page-bg: #f7f8f8; --glass-page-fg: #20282b;
+  --glass-menu-surface: #fff; --glass-modal-tint: #fff;
+  --glass-border: rgba(32,40,43,.12); --glass-rim-top: transparent;
+  --glass-rim-hairline: transparent; --glass-rim-bottom: transparent;
+  --glass-shadow: 0 4px 16px rgba(20,30,34,.06);
+  --glass-menu-shadow: 0 8px 32px rgba(20,30,34,.1);
+  --glass-scrim: rgba(20,28,32,.36);
+}
+html[data-theme='dark'] {
+  color-scheme: dark;
+  --glass-page-bg: #15191b; --glass-page-fg: #edf1f2;
+  --glass-menu-surface: #202628; --glass-modal-tint: #202628;
+  --glass-border: rgba(237,241,242,.12);
+  --glass-shadow: none; --glass-menu-shadow: none;
+  --glass-scrim: rgba(0,0,0,.56);
+}
+.liquid-glass-backdrop { position: relative; isolation: isolate; background: var(--glass-page-bg); color: var(--glass-page-fg); }
+.liquid-glass { position: relative; border: 1px solid var(--glass-border); background: var(--glass-menu-surface); box-shadow: none; }
+.liquid-glass--hover { transition: background .16s ease-out; }
+.liquid-glass--hover:hover { background: var(--panel-strong); }
+.liquid-glass-chip { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); }
+.liquid-glass-menu { background: var(--glass-menu-surface); border: 1px solid var(--glass-border); box-shadow: var(--glass-menu-shadow); border-radius: 12px; }
+.liquid-glass--modal { background: var(--glass-modal-tint); border-radius: 20px; }
+.liquid-glass-scrim { position: fixed; inset: 0; display: grid; place-items: center; background: var(--glass-scrim); }

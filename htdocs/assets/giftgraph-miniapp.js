@@ -1,6 +1,32 @@
 (function () {
   'use strict';
   var app = window.Telegram && window.Telegram.WebApp;
+  if (document.body && document.body.hasAttribute('data-auth-required')) {
+    if (!app || !app.initData) return;
+    app.ready();
+    fetch('/api/auth/telegram', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ init_data: app.initData })
+    }).then(function (response) {
+      if (!response.ok) throw new Error('login');
+      return fetch(window.location.pathname, {
+        credentials: 'same-origin', headers: { 'X-GiftGraph-Page': '1' }
+      });
+    }).then(function (response) {
+      if (!response.ok) throw new Error('graph');
+      return response.text();
+    }).then(function (html) {
+      if (html.indexOf('data-auth-required="true"') !== -1) throw new Error('session');
+      document.open();
+      document.write(html);
+      document.close();
+    }).catch(function () {
+      document.getElementById('auth-status').textContent =
+        'Не удалось открыть графы. Закройте приложение и откройте его заново через Telegram-бота.';
+    });
+    return;
+  }
   if (!app || app.platform === 'unknown') return;
 
   var root = document.documentElement;

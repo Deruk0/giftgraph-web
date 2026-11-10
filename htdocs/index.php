@@ -14,17 +14,20 @@ $edgePulse = $totalNodes > 0 ? round($totalEdges / max(1, $totalNodes), 1) : 0;
 <html lang="ru" data-language="ru" data-palette="ember" data-mode="light">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>GiftGraph Web</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <script defer src="<?= gg_escape(gg_asset_url('/assets/giftgraph-miniapp.js')) ?>"></script>
+<script src="<?= gg_escape(gg_asset_url('/assets/giftgraph-theme.js')) ?>"></script>
+<script defer src="<?= gg_escape(gg_asset_url('/assets/giftgraph-glass.js')) ?>"></script>
 <link rel="stylesheet" href="<?= gg_escape(gg_asset_url('/assets/giftgraph-home.css')) ?>">
+<link rel="stylesheet" href="<?= gg_escape(gg_asset_url('/assets/giftgraph-mobile.css')) ?>">
+<script defer src="<?= gg_escape(gg_asset_url('/assets/giftgraph-mobile.js')) ?>"></script>
 </head>
-<body>
-<canvas id="ambient-canvas" aria-hidden="true"></canvas>
+<body class="liquid-glass-backdrop">
 
 <main class="atlas-shell">
-  <nav class="topbar" aria-label="Панель сайта">
+  <nav class="topbar liquid-glass" aria-label="Панель сайта">
     <a class="brand" href="/">
       <span class="brand-mark" aria-hidden="true">
         <svg viewBox="0 0 48 48" focusable="false">
@@ -48,11 +51,20 @@ $edgePulse = $totalNodes > 0 ? round($totalEdges / max(1, $totalNodes), 1) : 0;
     </div>
   </nav>
 
-  <aside class="metrics" aria-label="Сводка архива">
+
+  <header class="hero">
+    <div class="hero-copy">
+      <p class="section-kicker">Telegram · личный архив</p>
+      <h1><span class="desktop-heading">Карта твоих связей</span><span class="mobile-heading">Твои графы</span></h1>
+      <p class="lead">Графы подарков Telegram: участники, связи и найденные пути</p>
+    </div>
+  </header>
+
+  <aside class="metrics liquid-glass" aria-label="Сводка архива">
     <div class="console-head">
       <p class="section-kicker">сводка архива</p>
       <h2>Статистика архива</h2>
-      <p class="console-copy">Текущие числа по архиву и плотности связей. Все действия со страниц остаются рабочими.</p>
+      <p class="console-copy">Твои сохранённые карты связей в цифрах.</p>
     </div>
     <div class="metric">
       <span class="metric-label">Графы</span>
@@ -66,13 +78,13 @@ $edgePulse = $totalNodes > 0 ? round($totalEdges / max(1, $totalNodes), 1) : 0;
       <span class="metric-label">Связи</span>
       <span class="metric-value" id="total-edges"><?= (int)$totalEdges ?></span>
     </div>
-    <div class="metric">
+    <div class="metric metric-density">
       <span class="metric-label">Связей на узел</span>
       <span class="metric-value"><?= gg_escape((string)$edgePulse) ?></span>
     </div>
     <div class="console-note">
       <strong>Совет</strong>
-      <p>По умолчанию включена тема Studio Violet; в настройках можно выбрать палитру и вручную настроить акценты.</p>
+      <p>По умолчанию включена тема Atlas Teal; в настройках можно выбрать палитру и вручную настроить акценты.</p>
     </div>
   </aside>
 
@@ -82,15 +94,15 @@ $edgePulse = $totalNodes > 0 ? round($totalEdges / max(1, $totalNodes), 1) : 0;
         <p class="section-kicker">список графов</p>
         <h2>Сохраненные графы</h2>
       </div>
-      <span class="archive-count"><span id="graphs-count"><?= $graphCount ?></span> записей</span>
+      <span class="archive-count liquid-glass-chip"><span id="graphs-count"><?= $graphCount ?></span> записей</span>
     </div>
 
     <div class="archive-tools">
-      <label class="search-shell" for="graph-search">
+      <label class="search-shell liquid-glass" for="graph-search">
         <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="11" cy="11" r="6"/><path d="M16 16l4 4"/></svg>
         <input id="graph-search" type="search" autocomplete="off" placeholder="Найти граф">
       </label>
-      <p class="archive-hint">Поиск фильтрует список сразу; кнопка удаления убирает граф из архива.</p>
+      <p class="archive-hint">Найди человека, название или дату.</p>
     </div>
 
     <div class="graphs-list" id="graphs-list">
@@ -106,7 +118,7 @@ $edgePulse = $totalNodes > 0 ? round($totalEdges / max(1, $totalNodes), 1) : 0;
         $flow = $nodes > 0 ? min(100, max(12, (int)round(($edges / max(1, $nodes)) * 18))) : 12;
         $deleteToken = gg_delete_token($safeGid);
       ?>
-      <article class="graph-card" id="card-<?= gg_escape($safeGid) ?>" data-search="<?= gg_escape(function_exists('mb_strtolower') ? mb_strtolower($search, 'UTF-8') : strtolower($search)) ?>" data-nodes="<?= $nodes ?>" data-edges="<?= $edges ?>" style="--flow:<?= $flow ?>%;">
+      <article class="graph-card liquid-glass" id="card-<?= gg_escape($safeGid) ?>" data-search="<?= gg_escape(function_exists('mb_strtolower') ? mb_strtolower($search, 'UTF-8') : strtolower($search)) ?>" data-nodes="<?= $nodes ?>" data-edges="<?= $edges ?>" style="--flow:<?= $flow ?>%;">
         <a class="graph-main" href="/view.php?gid=<?= rawurlencode($safeGid) ?>">
           <span class="graph-number"><?= gg_escape(str_pad((string)$position, 2, '0', STR_PAD_LEFT)) ?></span>
           <span class="graph-copy">
@@ -118,13 +130,6 @@ $edgePulse = $totalNodes > 0 ? round($totalEdges / max(1, $totalNodes), 1) : 0;
               <?php if ($pathLength > 0): ?><span>путь <?= $pathLength ?> шаг.</span><?php endif; ?>
             </span>
           </span>
-          <svg class="mini-map" viewBox="0 0 150 72" aria-hidden="true" focusable="false">
-            <path d="M8 54C36 14 63 16 84 37S121 59 141 18" />
-            <path d="M12 30C42 45 64 58 98 47C119 40 131 29 144 37" />
-            <circle cx="15" cy="52" r="3.5" />
-            <circle cx="84" cy="37" r="4.5" />
-            <circle cx="141" cy="18" r="3.5" />
-          </svg>
         </a>
         <div class="graph-actions">
           <a href="/view.php?gid=<?= rawurlencode($safeGid) ?>" class="text-btn open icon-text">
@@ -146,7 +151,7 @@ $edgePulse = $totalNodes > 0 ? round($totalEdges / max(1, $totalNodes), 1) : 0;
     </div>
     <div class="empty empty-filter" id="empty-filter" hidden>
       <div class="empty-mark" aria-hidden="true"></div>
-      <p>Такой граф пока не найден.</p>
+      <p>Ничего не найдено. Измени запрос</p>
     </div>
   </section>
 
@@ -163,12 +168,12 @@ $edgePulse = $totalNodes > 0 ? round($totalEdges / max(1, $totalNodes), 1) : 0;
   </section>
 </main>
 
-<aside class="theme-panel" id="theme-panel" aria-hidden="true">
-  <div class="panel-frame">
+<aside class="theme-panel" id="theme-panel" role="dialog" aria-modal="true" aria-labelledby="settings-title" aria-hidden="true">
+  <div class="panel-frame liquid-glass liquid-glass--modal">
     <div class="panel-head">
       <div>
         <p class="section-kicker">настройки</p>
-        <h2>Оформление сайта</h2>
+        <h2 id="settings-title">Оформление сайта</h2>
       </div>
       <button class="icon-btn" id="settings-close" type="button" aria-label="Закрыть настройки">
         <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6L6 18"/></svg>
@@ -224,31 +229,31 @@ $edgePulse = $totalNodes > 0 ? round($totalEdges / max(1, $totalNodes), 1) : 0;
         <div class="palette-list" aria-label="Цветовые темы">
           <button type="button" class="palette-card" data-palette-choice="ember">
             <span>
-              <strong>Studio Violet</strong>
-              <small>фиолетовый сигнал, молочная бумага, чернильные кнопки</small>
+              <strong>Atlas Teal</strong>
+              <small>зелёный акцент и спокойные нейтральные тона</small>
             </span>
-            <i style="--a:#7a3cff;--b:#b08cff;--c:#eadcff"></i>
+            <i style="--a:#146b62;--b:#79aaa3;--c:#dcece8"></i>
           </button>
           <button type="button" class="palette-card" data-palette-choice="reef">
             <span>
               <strong>Signal Blue</strong>
-              <small>электрический синий, холодный воздух, светлый фон</small>
+              <small>синий акцент и нейтральные тона</small>
             </span>
-            <i style="--a:#2f6bff;--b:#79a8ff;--c:#dbe7ff"></i>
+            <i style="--a:#356ddc;--b:#7ca6ed;--c:#dce8ff"></i>
           </button>
           <button type="button" class="palette-card" data-palette-choice="iris">
             <span>
               <strong>Rose Index</strong>
-              <small>малиновый акцент, мягкая бумага, теплые подписи</small>
+              <small>розовый акцент и нейтральные тона</small>
             </span>
-            <i style="--a:#ca3c76;--b:#ff8bb7;--c:#ffd7e8"></i>
+            <i style="--a:#bd497f;--b:#df95b5;--c:#f9dcea"></i>
           </button>
           <button type="button" class="palette-card" data-palette-choice="graphite">
             <span>
               <strong>Ink Contrast</strong>
-              <small>почти монохром, сдержанный акцент, высокий контраст</small>
+              <small>серебряные оттенки и спокойный контраст</small>
             </span>
-            <i style="--a:#22201c;--b:#7b7267;--c:#e3d8c8"></i>
+            <i style="--a:#526078;--b:#8f9aaf;--c:#dce1ed"></i>
           </button>
         </div>
       </section>

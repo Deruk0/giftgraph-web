@@ -10,10 +10,6 @@
   var settingsClose = document.getElementById('settings-close');
   var searchInput = document.getElementById('graph-search');
   var emptyFilter = document.getElementById('empty-filter');
-  var canvas = document.getElementById('ambient-canvas');
-  var ctx = canvas ? canvas.getContext('2d') : null;
-  var raf = 0;
-  var points = [];
   var allowedPalettes = ['ember', 'reef', 'iris', 'graphite'];
   var paletteAliases = {
     violet: 'ember',
@@ -23,20 +19,20 @@
   };
   var themeDefaults = {
     ember: {
-      dark: { accent:'#b693ff', accent2:'#7d58d9', accent3:'#dbcbff' },
-      light:{ accent:'#7a3cff', accent2:'#b08cff', accent3:'#eadcff' }
+      dark: { accent:'#8bd0c3', accent2:'#589e91', accent3:'#c9e8e1' },
+      light:{ accent:'#146b62', accent2:'#79aaa3', accent3:'#dcece8' }
     },
     reef: {
-      dark: { accent:'#8bb3ff', accent2:'#4677e8', accent3:'#d7e5ff' },
-      light:{ accent:'#2f6bff', accent2:'#79a8ff', accent3:'#dbe7ff' }
+      dark: { accent:'#9bbfff', accent2:'#678ed6', accent3:'#d2e2ff' },
+      light:{ accent:'#356ddc', accent2:'#7ca6ed', accent3:'#dce8ff' }
     },
     iris: {
-      dark: { accent:'#ff8fbf', accent2:'#c95682', accent3:'#ffd5e5' },
-      light:{ accent:'#ca3c76', accent2:'#ff8bb7', accent3:'#ffd7e8' }
+      dark: { accent:'#f5a3c7', accent2:'#cc789f', accent3:'#ffdaeb' },
+      light:{ accent:'#bd497f', accent2:'#df95b5', accent3:'#f9dcea' }
     },
     graphite: {
-      dark: { accent:'#f0e1c7', accent2:'#b9a58e', accent3:'#73695c' },
-      light:{ accent:'#22201c', accent2:'#7b7267', accent3:'#e3d8c8' }
+      dark: { accent:'#c2cee5', accent2:'#97a6c1', accent3:'#e4ebf8' },
+      light:{ accent:'#526078', accent2:'#8f9aaf', accent3:'#dce1ed' }
     }
   };
 
@@ -154,11 +150,11 @@
     mode = cleanMode(mode);
     root.setAttribute('data-palette', palette);
     root.setAttribute('data-mode', mode);
+    root.setAttribute('data-theme', mode);
     save(storagePalette, palette);
     save(storageMode, mode);
     applyCustomColors();
     updateControls();
-    resetAmbient();
   }
 
   function cleanDefaultAutoDelete(value) {
@@ -226,86 +222,6 @@
   function rgba(hex, alpha) {
     var c = hexToRgb(hex || '#ffffff');
     return 'rgba(' + c.r + ',' + c.g + ',' + c.b + ',' + alpha + ')';
-  }
-
-  function resizeCanvas() {
-    if (!canvas || !ctx) return;
-    var ratio = Math.min(window.devicePixelRatio || 1, 2);
-    canvas.width = Math.floor(window.innerWidth * ratio);
-    canvas.height = Math.floor(window.innerHeight * ratio);
-    canvas.style.width = window.innerWidth + 'px';
-    canvas.style.height = window.innerHeight + 'px';
-    ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
-    resetAmbient();
-  }
-
-  function resetAmbient() {
-    if (!canvas || !ctx) return;
-    var count = Math.max(18, Math.min(52, Math.round(window.innerWidth / 30)));
-    points = Array.from({ length: count }, function (_, index) {
-      return {
-        x: Math.random() * window.innerWidth,
-        y: Math.random() * window.innerHeight,
-        speed: 0.08 + Math.random() * 0.24,
-        phase: Math.random() * Math.PI * 2,
-        size: index % 7 === 0 ? 2.4 : 1.35
-      };
-    });
-  }
-
-  function drawAmbient(time) {
-    if (!canvas || !ctx) return;
-    var w = window.innerWidth;
-    var h = window.innerHeight;
-    var accent = css('--accent');
-    var accent2 = css('--accent-2');
-    var accent3 = css('--accent-3');
-    var grid = css('--grid') || rgba(accent2, 0.1);
-    ctx.clearRect(0, 0, w, h);
-
-    ctx.lineWidth = 1;
-    for (var ring = 0; ring < 4; ring++) {
-      var cx = w * (0.16 + ring * 0.22);
-      var cy = h * (0.2 + (ring % 2) * 0.32);
-      var rx = 150 + ring * 50 + Math.sin(time * 0.0004 + ring) * 12;
-      var ry = 68 + ring * 18;
-      ctx.save();
-      ctx.translate(cx, cy);
-      ctx.rotate(-0.35 + ring * 0.18);
-      ctx.beginPath();
-      ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2);
-      ctx.strokeStyle = rgba(ring % 2 ? accent2 : accent3, 0.12);
-      ctx.stroke();
-      ctx.restore();
-    }
-
-    for (var line = 0; line < 7; line++) {
-      var y = h * (0.08 + line * 0.14);
-      ctx.beginPath();
-      ctx.moveTo(-40, y);
-      for (var x = -40; x <= w + 80; x += 80) {
-        var wobble = Math.sin(x * 0.01 + time * 0.00034 + line) * (10 + line);
-        ctx.lineTo(x, y + wobble);
-      }
-      ctx.strokeStyle = line % 2 ? grid : rgba(accent, 0.11);
-      ctx.stroke();
-    }
-
-    points.forEach(function (p, index) {
-      p.x += Math.cos(time * 0.00026 + p.phase) * p.speed;
-      p.y += Math.sin(time * 0.00022 + p.phase) * p.speed;
-      if (p.x < -20) p.x = w + 20;
-      if (p.x > w + 20) p.x = -20;
-      if (p.y < -20) p.y = h + 20;
-      if (p.y > h + 20) p.y = -20;
-
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-      ctx.fillStyle = rgba(index % 3 === 0 ? accent : index % 3 === 1 ? accent2 : accent3, 0.34);
-      ctx.fill();
-    });
-
-    raf = requestAnimationFrame(drawAmbient);
   }
 
   function normalizeSearch(value) {
@@ -480,8 +396,7 @@
       payload[key] = input.value;
       saveThemeCustom(payload);
       applyCustomColors();
-      resetAmbient();
-    });
+      });
   });
 
   var colorReset = document.getElementById('theme-color-reset');
@@ -490,8 +405,7 @@
       clearThemeCustom();
       applyCustomColors();
       syncThemeColorInputs();
-      resetAmbient();
-    });
+      });
   }
 
   if (searchInput) {
@@ -524,12 +438,4 @@
   applyTheme(getSaved(storagePalette, 'ember'), getSaved(storageMode, preferredMode()));
   if (i18n && i18n.init) i18n.init(document);
   applyFilter();
-  resizeCanvas();
-  window.addEventListener('resize', resizeCanvas);
-  if (!window.matchMedia || !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-    raf = requestAnimationFrame(drawAmbient);
-  } else {
-    drawAmbient(0);
-    cancelAnimationFrame(raf);
-  }
 })();

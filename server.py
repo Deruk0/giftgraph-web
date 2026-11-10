@@ -10,11 +10,13 @@ import re
 import tempfile
 import threading
 import uuid
+import time
+from urllib.parse import parse_qsl
 from functools import wraps
 from datetime import datetime, timedelta, timezone
 from html import escape
 
-from flask import Flask, abort, jsonify, render_template_string, request, send_from_directory
+from flask import Flask, abort, jsonify, render_template_string, request, send_from_directory, session
 
 app = Flask(__name__)
 
@@ -23,6 +25,10 @@ GRAPHS_DIR = os.path.join(BASE_DIR, "graphs")
 INDEX_PATH = os.path.join(GRAPHS_DIR, "_index.json")
 ASSETS_DIR = os.path.join(BASE_DIR, "htdocs", "assets")
 API_SECRET = os.getenv("GIFTGRAPH_SECRET", "").strip()
+BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
+app.secret_key = hashlib.sha256((API_SECRET + ":session:" + BOT_TOKEN).encode()).digest() if API_SECRET and BOT_TOKEN else None
+app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SECURE=True,
+                  SESSION_COOKIE_SAMESITE="Lax", PERMANENT_SESSION_LIFETIME=timedelta(hours=12))
 INDEX_LOCK = threading.RLock()
 CLOUD_STORAGE = os.getenv("GIFTGRAPH_STORAGE") == "blob"
 if CLOUD_STORAGE:
@@ -94,7 +100,7 @@ def _save_index(idx: dict) -> None:
 
 def _api_key_ok() -> bool:
     if not API_SECRET:
-        return not CLOUD_STORAGE
+        return False
     auth = request.headers.get("Authorization", "")
     plain = request.headers.get("X-GiftGraph-Secret", "")
     return auth == f"Bearer {API_SECRET}" or plain == API_SECRET
@@ -113,12 +119,84 @@ def _delete_token_ok(gid: str) -> bool:
 
 MINIAPP_ASSETS = '''<script src="https://telegram.org/js/telegram-web-app.js"></script>
 <script defer src="/assets/giftgraph-miniapp.js"></script>'''
+
+
+def _owns_graph(info):
+    uid = session.get("user_id")
+    return bool(uid and info and str(info.get("owner_id", "")) == str(uid))
+
+
+def _visible_graphs():
+    uid = session.get("user_id")
+    if not uid:
+        return {}
+    return {gid: info for gid, info in _load_index().get("graphs", {}).items() if _owns_graph(info)}
+
+
+def _login_page():
+    return ('<!doctype html><html lang="ru"><head><meta charset="utf-8">'
+            '<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">'
+            '<title>GiftGraph</title>' + MINIAPP_ASSETS +
+            '<script src="/assets/giftgraph-theme.js"></script>'
+            '<link rel="stylesheet" href="/assets/giftgraph-home.css">'
+            '</head><body data-auth-required="true"><main class="auth-shell">'
+            '<section class="auth-card"><div class="brand"><span class="brand-mark" aria-hidden="true">'
+            '<svg viewBox="0 0 48 48"><path d="M8 28C15 11 33 7 40 20"/><path d="M9 29C18 39 34 39 41 22"/>'
+            '<circle cx="13" cy="28" r="3.6"/><circle cx="32" cy="13" r="3.6"/>'
+            '<circle cx="39" cy="22" r="3.6"/></svg></span>'
+            '<span class="brand-copy"><small>GiftGraph</small><strong>Архив графов Telegram</strong></span></div>'
+            '<h1>Твои карты связей</h1><p id="auth-status" role="status">'
+            'Откройте приложение через меню Telegram-бота, чтобы увидеть свои графы.'
+            '</p></section></main></body></html>')
+
+
+@app.after_request
+def private_responses(response):
+    if request.path == "/" or request.path.startswith(("/api/", "/view/", "/graph/")):
+        response.headers["Cache-Control"] = "private, no-store"
+        response.vary.add("Cookie")
+    return response
+
+
+@app.route("/api/auth/telegram", methods=["POST"])
+def telegram_login():
+    if not BOT_TOKEN or not app.secret_key:
+        return jsonify({"error": "Telegram login is not configured"}), 503
+    data = request.get_json(silent=True)
+    try:
+        raw = data["init_data"]
+        if not isinstance(raw, str) or len(raw) > 16384:
+            raise ValueError()
+        pairs = parse_qsl(raw, strict_parsing=True)
+        fields = dict(pairs)
+        if len(fields) != len(pairs):
+            raise ValueError()
+        signature = fields.pop("hash")
+        check = "\n".join(f"{key}={value}" for key, value in sorted(fields.items()))
+        secret = hmac.new(b"WebAppData", BOT_TOKEN.encode(), hashlib.sha256).digest()
+        expected = hmac.new(secret, check.encode(), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(expected, signature):
+            raise ValueError()
+        age = time.time() - int(fields["auth_date"])
+        if age < -60 or age > 43200:
+            raise ValueError()
+        uid = json.loads(fields["user"])["id"]
+        if type(uid) is not int or uid <= 0:
+            raise ValueError()
+    except (KeyError, TypeError, ValueError):
+        session.clear()
+        return jsonify({"error": "invalid Telegram credentials"}), 401
+    changed = session.get("user_id") != uid
+    session.clear()
+    session["user_id"] = uid
+    session.permanent = True
+    return jsonify({"ok": True, "changed": changed})
 MOBILE_VIEWPORT = '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">'
-TOOLBAR_ASSETS = MOBILE_VIEWPORT + '<link rel="stylesheet" href="/assets/giftgraph-graph.css">' + MINIAPP_ASSETS
+MOBILE_ASSETS = '<link rel="stylesheet" href="/assets/giftgraph-mobile.css"><script defer src="/assets/giftgraph-mobile.js"></script>'
+TOOLBAR_ASSETS = MOBILE_VIEWPORT + '<script src="/assets/giftgraph-theme.js"></script><script defer src="/assets/giftgraph-glass.js"></script>' + '<link rel="stylesheet" href="/assets/giftgraph-graph.css">' + MOBILE_ASSETS + MINIAPP_ASSETS
 
 TOOLBAR_HTML = """
-<canvas id="giftgraph-ambient-canvas" aria-hidden="true"></canvas>
-<div id="giftgraph-toolbar" role="region" aria-label="Панель графа">
+<div id="giftgraph-toolbar" class="liquid-glass" role="region" aria-label="Панель графа">
   <div class="tb-left">
     <a href="/" class="tb-btn tb-back tb-icon-text">
       <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M15 6l-6 6 6 6"/><path d="M9 12h11"/></svg>
@@ -163,43 +241,19 @@ TOOLBAR_HTML = """
       <span>Удалить</span>
     </button>
   </div>
-  </div>
 </div>
-<div id="giftgraph-theme-panel" aria-hidden="true">
+<div id="giftgraph-theme-panel" role="dialog" aria-modal="true" aria-labelledby="gg-settings-title" aria-hidden="true">
+  <div class="tb-panel-frame liquid-glass liquid-glass--modal">
   <div class="tb-panel-head">
     <span>
       <span class="tb-panel-kicker">визуальный режим</span>
-      <strong>Настройки графа</strong>
+      <strong id="gg-settings-title">Настройки графа</strong>
     </span>
     <button class="tb-icon" id="giftgraph-settings-close" type="button" aria-label="Закрыть настройки">
       <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6L6 18"/></svg>
     </button>
   </div>
   <div class="tb-settings-grid">
-    <section class="tb-section">
-      <div class="tb-section-title">Язык интерфейса</div>
-      <div class="tb-mode-row tb-language-row" role="group" aria-label="Язык интерфейса">
-        <button type="button" class="tb-choice" data-language-choice="ru">Русский</button>
-        <button type="button" class="tb-choice" data-language-choice="en">English</button>
-      </div>
-      <div class="tb-section-title">Вид</div>
-      <div class="tb-mode-row">
-        <button type="button" class="tb-choice" data-gg-mode-choice="light">Светлая</button>
-        <button type="button" class="tb-choice" data-gg-mode-choice="dark">Темная</button>
-      </div>
-      <div class="tb-palettes">
-        <button type="button" class="tb-palette" data-gg-palette-choice="ember"><span>Studio Violet</span><i class="tb-swatch" style="--a:#7a3cff;--b:#b08cff;--c:#eadcff"></i></button>
-        <button type="button" class="tb-palette" data-gg-palette-choice="reef"><span>Signal Blue</span><i class="tb-swatch" style="--a:#2f6bff;--b:#79a8ff;--c:#dbe7ff"></i></button>
-        <button type="button" class="tb-palette" data-gg-palette-choice="iris"><span>Rose Index</span><i class="tb-swatch" style="--a:#ca3c76;--b:#ff8bb7;--c:#ffd7e8"></i></button>
-        <button type="button" class="tb-palette" data-gg-palette-choice="graphite"><span>Ink Contrast</span><i class="tb-swatch" style="--a:#22201c;--b:#7b7267;--c:#e3d8c8"></i></button>
-      </div>
-      <div class="tb-color-grid" aria-label="Точная настройка цветов">
-        <label class="tb-color">Акцент <input id="gg-theme-color-accent" type="color" data-gg-theme-color="accent"></label>
-        <label class="tb-color">Узлы <input id="gg-theme-color-accent-2" type="color" data-gg-theme-color="accent2"></label>
-        <label class="tb-color">Мягкий <input id="gg-theme-color-accent-3" type="color" data-gg-theme-color="accent3"></label>
-      </div>
-      <button type="button" class="tb-choice" id="gg-theme-color-reset">Сбросить цвета</button>
-    </section>
     <section class="tb-section">
       <div class="tb-section-title">Граф</div>
       <label class="tb-range">Узлы <span id="gg-node-scale-value">1.0</span><input id="gg-node-scale" type="range" min="0.65" max="1.8" step="0.05" value="1"></label>
@@ -212,6 +266,30 @@ TOOLBAR_HTML = """
         <button type="button" class="tb-choice" data-gg-action="stabilize">Разложить узлы</button>
       </div>
     </section>
+    <section class="tb-section">
+      <div class="tb-section-title">Язык интерфейса</div>
+      <div class="tb-mode-row tb-language-row" role="group" aria-label="Язык интерфейса">
+        <button type="button" class="tb-choice" data-language-choice="ru">Русский</button>
+        <button type="button" class="tb-choice" data-language-choice="en">English</button>
+      </div>
+      <div class="tb-section-title">Вид</div>
+      <div class="tb-mode-row">
+        <button type="button" class="tb-choice" data-gg-mode-choice="light">Светлая</button>
+        <button type="button" class="tb-choice" data-gg-mode-choice="dark">Темная</button>
+      </div>
+      <div class="tb-palettes">
+        <button type="button" class="tb-palette" data-gg-palette-choice="ember"><span>Atlas Teal</span><i class="tb-swatch" style="--a:#146b62;--b:#79aaa3;--c:#dcece8"></i></button>
+        <button type="button" class="tb-palette" data-gg-palette-choice="reef"><span>Signal Blue</span><i class="tb-swatch" style="--a:#356ddc;--b:#7ca6ed;--c:#dce8ff"></i></button>
+        <button type="button" class="tb-palette" data-gg-palette-choice="iris"><span>Rose Index</span><i class="tb-swatch" style="--a:#bd497f;--b:#df95b5;--c:#f9dcea"></i></button>
+        <button type="button" class="tb-palette" data-gg-palette-choice="graphite"><span>Ink Contrast</span><i class="tb-swatch" style="--a:#526078;--b:#8f9aaf;--c:#dce1ed"></i></button>
+      </div>
+      <div class="tb-color-grid" aria-label="Точная настройка цветов">
+        <label class="tb-color">Акцент <input id="gg-theme-color-accent" type="color" data-gg-theme-color="accent"></label>
+        <label class="tb-color">Узлы <input id="gg-theme-color-accent-2" type="color" data-gg-theme-color="accent2"></label>
+        <label class="tb-color">Мягкий <input id="gg-theme-color-accent-3" type="color" data-gg-theme-color="accent3"></label>
+      </div>
+      <button type="button" class="tb-choice" id="gg-theme-color-reset">Сбросить цвета</button>
+    </section>
     <section class="tb-section tb-section-wide">
       <div class="tb-section-title">Автоудаление</div>
       <div class="tb-auto-row" data-gg-autodelete-group>
@@ -222,6 +300,7 @@ TOOLBAR_HTML = """
       </div>
       <div class="tb-auto-status" id="gg-auto-delete-status">Не запланировано</div>
     </section>
+  </div>
   </div>
 </div>
 <script src="/assets/giftgraph-i18n.js"></script>
@@ -285,13 +364,16 @@ HOME_TEMPLATE = r"""<!DOCTYPE html>
 <title>GiftGraph Web</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <script defer src="/assets/giftgraph-miniapp.js"></script>
+<script src="/assets/giftgraph-theme.js"></script>
+<script defer src="/assets/giftgraph-glass.js"></script>
 <link rel="stylesheet" href="/assets/giftgraph-home.css">
+<link rel="stylesheet" href="/assets/giftgraph-mobile.css">
+<script defer src="/assets/giftgraph-mobile.js"></script>
 </head>
-<body>
-<canvas id="ambient-canvas" aria-hidden="true"></canvas>
+<body class="liquid-glass-backdrop">
 
 <main class="atlas-shell">
-  <nav class="topbar" aria-label="Панель сайта">
+  <nav class="topbar liquid-glass" aria-label="Панель сайта">
     <a class="brand" href="/">
       <span class="brand-mark" aria-hidden="true">
         <svg viewBox="0 0 48 48" focusable="false">
@@ -315,11 +397,20 @@ HOME_TEMPLATE = r"""<!DOCTYPE html>
     </div>
   </nav>
 
-  <aside class="metrics" aria-label="Сводка архива">
+
+  <header class="hero">
+    <div class="hero-copy">
+      <p class="section-kicker">Telegram · личный архив</p>
+      <h1><span class="desktop-heading">Карта твоих связей</span><span class="mobile-heading">Твои графы</span></h1>
+      <p class="lead">Графы подарков Telegram: участники, связи и найденные пути</p>
+    </div>
+  </header>
+
+  <aside class="metrics liquid-glass" aria-label="Сводка архива">
     <div class="console-head">
       <p class="section-kicker">сводка архива</p>
       <h2>Статистика архива</h2>
-      <p class="console-copy">Текущие числа по архиву и плотности связей. Все действия со страниц остаются рабочими.</p>
+      <p class="console-copy">Твои сохранённые карты связей в цифрах.</p>
     </div>
     <div class="metric">
       <span class="metric-label">Графы</span>
@@ -333,13 +424,13 @@ HOME_TEMPLATE = r"""<!DOCTYPE html>
       <span class="metric-label">Связи</span>
       <span class="metric-value" id="total-edges">{{ total_edges }}</span>
     </div>
-    <div class="metric">
+    <div class="metric metric-density">
       <span class="metric-label">Связей на узел</span>
       <span class="metric-value">{{ edge_pulse }}</span>
     </div>
     <div class="console-note">
       <strong>Совет</strong>
-      <p>По умолчанию включена тема Studio Violet; в настройках можно выбрать палитру и вручную настроить акценты.</p>
+      <p>По умолчанию включена тема Atlas Teal; в настройках можно выбрать палитру и вручную настроить акценты.</p>
     </div>
   </aside>
 
@@ -349,21 +440,21 @@ HOME_TEMPLATE = r"""<!DOCTYPE html>
         <p class="section-kicker">список графов</p>
         <h2>Сохраненные графы</h2>
       </div>
-      <span class="archive-count"><span id="graphs-count">{{ graph_count }}</span> записей</span>
+      <span class="archive-count liquid-glass-chip"><span id="graphs-count">{{ graph_count }}</span> записей</span>
     </div>
 
     <div class="archive-tools">
-      <label class="search-shell" for="graph-search">
+      <label class="search-shell liquid-glass" for="graph-search">
         <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="11" cy="11" r="6"/><path d="M16 16l4 4"/></svg>
         <input id="graph-search" type="search" autocomplete="off" placeholder="Найти граф">
       </label>
-      <p class="archive-hint">Поиск фильтрует список сразу; кнопка удаления убирает граф из архива.</p>
+      <p class="archive-hint">Найди человека, название или дату.</p>
     </div>
 
     <div class="graphs-list" id="graphs-list">
     {% if rows %}
       {% for row in rows %}
-      <article class="graph-card" id="card-{{ row.gid }}" data-search="{{ row.search }}" data-nodes="{{ row.nodes }}" data-edges="{{ row.edges }}" style="--flow:{{ row.flow }}%;">
+      <article class="graph-card liquid-glass" id="card-{{ row.gid }}" data-search="{{ row.search }}" data-nodes="{{ row.nodes }}" data-edges="{{ row.edges }}" style="--flow:{{ row.flow }}%;">
         <a class="graph-main" href="/view/{{ row.gid }}">
           <span class="graph-number">{{ "%02d"|format(row.position) }}</span>
           <span class="graph-copy">
@@ -375,13 +466,6 @@ HOME_TEMPLATE = r"""<!DOCTYPE html>
               {% if row.path_length > 0 %}<span>путь {{ row.path_length }} шаг.</span>{% endif %}
             </span>
           </span>
-          <svg class="mini-map" viewBox="0 0 150 72" aria-hidden="true" focusable="false">
-            <path d="M8 54C36 14 63 16 84 37S121 59 141 18" />
-            <path d="M12 30C42 45 64 58 98 47C119 40 131 29 144 37" />
-            <circle cx="15" cy="52" r="3.5" />
-            <circle cx="84" cy="37" r="4.5" />
-            <circle cx="141" cy="18" r="3.5" />
-          </svg>
         </a>
         <div class="graph-actions">
           <a href="/view/{{ row.gid }}" class="text-btn open icon-text">
@@ -403,7 +487,7 @@ HOME_TEMPLATE = r"""<!DOCTYPE html>
     </div>
     <div class="empty empty-filter" id="empty-filter" hidden>
       <div class="empty-mark" aria-hidden="true"></div>
-      <p>Такой граф пока не найден.</p>
+      <p>Ничего не найдено. Измени запрос</p>
     </div>
   </section>
 
@@ -420,12 +504,12 @@ HOME_TEMPLATE = r"""<!DOCTYPE html>
   </section>
 </main>
 
-<aside class="theme-panel" id="theme-panel" aria-hidden="true">
-  <div class="panel-frame">
+<aside class="theme-panel" id="theme-panel" role="dialog" aria-modal="true" aria-labelledby="settings-title" aria-hidden="true">
+  <div class="panel-frame liquid-glass liquid-glass--modal">
     <div class="panel-head">
       <div>
         <p class="section-kicker">настройки</p>
-        <h2>Оформление сайта</h2>
+        <h2 id="settings-title">Оформление сайта</h2>
       </div>
       <button class="icon-btn" id="settings-close" type="button" aria-label="Закрыть настройки">
         <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6L6 18"/></svg>
@@ -479,10 +563,10 @@ HOME_TEMPLATE = r"""<!DOCTYPE html>
         <p class="section-kicker">темы</p>
         <h3>Цветовые наборы</h3>
         <div class="palette-list" aria-label="Цветовые темы">
-          <button type="button" class="palette-card" data-palette-choice="ember"><span><strong>Studio Violet</strong><small>фиолетовый сигнал, молочная бумага, чернильные кнопки</small></span><i style="--a:#7a3cff;--b:#b08cff;--c:#eadcff"></i></button>
-          <button type="button" class="palette-card" data-palette-choice="reef"><span><strong>Signal Blue</strong><small>электрический синий, холодный воздух, светлый фон</small></span><i style="--a:#2f6bff;--b:#79a8ff;--c:#dbe7ff"></i></button>
-          <button type="button" class="palette-card" data-palette-choice="iris"><span><strong>Rose Index</strong><small>малиновый акцент, мягкая бумага, теплые подписи</small></span><i style="--a:#ca3c76;--b:#ff8bb7;--c:#ffd7e8"></i></button>
-          <button type="button" class="palette-card" data-palette-choice="graphite"><span><strong>Ink Contrast</strong><small>почти монохром, сдержанный акцент, высокий контраст</small></span><i style="--a:#22201c;--b:#7b7267;--c:#e3d8c8"></i></button>
+          <button type="button" class="palette-card" data-palette-choice="ember"><span><strong>Atlas Teal</strong><small>зелёный акцент и спокойные нейтральные тона</small></span><i style="--a:#146b62;--b:#79aaa3;--c:#dcece8"></i></button>
+          <button type="button" class="palette-card" data-palette-choice="reef"><span><strong>Signal Blue</strong><small>синий акцент и нейтральные тона</small></span><i style="--a:#356ddc;--b:#7ca6ed;--c:#dce8ff"></i></button>
+          <button type="button" class="palette-card" data-palette-choice="iris"><span><strong>Rose Index</strong><small>розовый акцент и нейтральные тона</small></span><i style="--a:#bd497f;--b:#df95b5;--c:#f9dcea"></i></button>
+          <button type="button" class="palette-card" data-palette-choice="graphite"><span><strong>Ink Contrast</strong><small>серебряные оттенки и спокойный контраст</small></span><i style="--a:#526078;--b:#8f9aaf;--c:#dce1ed"></i></button>
         </div>
       </section>
 
@@ -517,8 +601,9 @@ def assets(filename: str):
 
 @app.route("/")
 def home():
-    idx = _load_index()
-    graphs = idx.get("graphs", {})
+    if not session.get("user_id") or request.headers.get("X-GiftGraph-Page") != "1":
+        return _login_page()
+    graphs = _visible_graphs()
     sorted_graphs = dict(sorted(graphs.items(), key=lambda kv: kv[1].get("created_ts", 0), reverse=True))
     rows = []
     for position, (gid, info) in enumerate(sorted_graphs.items(), start=1):
@@ -559,8 +644,10 @@ def home():
 def view_graph(gid: str):
     if not re.fullmatch(r"[a-f0-9]{12}", gid):
         abort(404)
+    if not session.get("user_id") or request.headers.get("X-GiftGraph-Page") != "1":
+        return _login_page()
     info = GRAPH_STORE.info(gid) if CLOUD_STORAGE else _load_index().get("graphs", {}).get(gid)
-    if info is None:
+    if not _owns_graph(info):
         abort(404)
 
     if CLOUD_STORAGE:
@@ -579,6 +666,11 @@ def view_graph(gid: str):
 
 @app.route("/graph/<gid>")
 def view_graph_raw(gid: str):
+    if not re.fullmatch(r"[a-f0-9]{12}", gid):
+        abort(404)
+    info = GRAPH_STORE.info(gid) if CLOUD_STORAGE else _load_index().get("graphs", {}).get(gid)
+    if not _owns_graph(info):
+        abort(404)
     if CLOUD_STORAGE:
         if not re.fullmatch(r"[a-f0-9]{12}", gid) or GRAPH_STORE.info(gid) is None:
             abort(404)
@@ -601,6 +693,9 @@ def api_create_graph():
     data = request.get_json(silent=True)
     if not isinstance(data, dict):
         return jsonify({"error": "invalid json object"}), 400
+    owner_id = data.get("owner_id")
+    if type(owner_id) is not int or owner_id <= 0:
+        return jsonify({"error": "owner_id must be a positive Telegram user id"}), 400
     html = data.get("html", "")
     if not isinstance(html, str):
         return jsonify({"error": "html must be a string"}), 400
@@ -618,6 +713,7 @@ def api_create_graph():
     now = datetime.now(timezone(timedelta(hours=3)))
     raw_label = data.get("label", f"Граф {gid[:6]}")
     graph_info = {
+        "owner_id": owner_id,
         "label": _strip_html(str(raw_label)),
         **counts,
         "created": now.strftime("%Y-%m-%d %H:%M MSK"),
@@ -640,14 +736,23 @@ def api_create_graph():
 
 @app.route("/api/graphs", methods=["GET"])
 def api_list_graphs():
-    idx = _load_index()
-    graphs = idx.get("graphs", {})
+    if not session.get("user_id"):
+        return jsonify({"error": "unauthorized"}), 401
+    graphs = _visible_graphs()
     return jsonify({"graphs": graphs, "count": len(graphs)})
 
 
 @app.route("/api/graphs/<gid>", methods=["DELETE"])
 @_locked_index
 def api_delete_graph(gid: str):
+    if not re.fullmatch(r"[a-f0-9]{12}", gid):
+        abort(404)
+    if not _api_key_ok():
+        if not session.get("user_id"):
+            return jsonify({"error": "unauthorized"}), 401
+        info = GRAPH_STORE.info(gid) if CLOUD_STORAGE else _load_index().get("graphs", {}).get(gid)
+        if not _owns_graph(info):
+            abort(404)
     if not _api_key_ok() and not _delete_token_ok(gid):
         return jsonify({"error": "unauthorized"}), 401
     if CLOUD_STORAGE:
